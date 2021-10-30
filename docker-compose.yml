@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    environment:
+      SCHEDULERS: 1
+      PORT: ${PORT}
+      LOGGER_LEVEL: ${LOGGER_LEVEL}
+    network_mode: host
+    command: foreground
+
+  mdns:
+    build:
+      context: ./docker/avahi
+    environment:
+      PORT: ${PORT}
+      ES_PORT: 9200
+    network_mode: host
+
+  logs:
+    image: elasticsearch:7.14.2
+    environment:
+      discovery.type: single-node
+    network_mode: host
+    ports:
+    - 9200:9200
