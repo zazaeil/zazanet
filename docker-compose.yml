@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    environment:
+      SCHEDULERS: 1
+      PORT: ${PORT}
+      LOGGER_LEVEL: ${LOGGER_LEVEL}
+    network_mode: host
+    command: foreground
+
+  mdns:
+    build:
+      context: ./docker
+      dockerfile: ./Avahi.Dockerfile
+    environment:
+      PORT: ${PORT}
+    network_mode: host
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.1
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+    ports:
+    - 9200:9200
+    - 9300:9300
+    command: ["elasticsearch", "-Elogger.level=WARN"]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.1
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+    - 5601:5601
+    command: ["kibana", "-Q"] # https://gist.github.com/0x0I/ac0becf96aa6d18fd8f8f29c3a1d0c1c

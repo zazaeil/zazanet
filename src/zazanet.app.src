@@ -1,0 +1,12 @@
+{application, zazanet, [{description, "Zazanet backend."},
+                        {vsn, {git, short}},
+                        {registered, []},
+                        {mod, {zazanet_app, []}},
+                        {applications, [kernel,
+                                        stdlib,
+                                        sasl, %% sasl is not needed, but otherwise misleading warnings are generated...
+                                        cowboy]},
+                        {env,[]},
+                        {modules, []},
+                        {licenses, ["Apache 2.0"]},
+                        {links, []}]}.

@@ -1,0 +1,2 @@
+[{kernel, [{logger_level, ${LOGGER_LEVEL}}]},
+ {zazanet, [{port, ${PORT}}]}].
