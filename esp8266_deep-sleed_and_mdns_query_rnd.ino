@@ -7,8 +7,8 @@
 #include <ESP8266WiFi.h>
 #endif
 
-const char* ssid = "Becoss_lan";
-const char* password =  "82181444";
+const char* ssid = "wifi network name";
+const char* password =  "wifi password";
 
 void setup() {
   Serial.begin(74880);  // Тут внимание на скорость порта. Не забудь перевести на такую же скорость свой Serial monitor!
