@@ -14,6 +14,7 @@ RUN rebar3 compile
 
 COPY ./config ./config/
 COPY ./src ./src/
+COPY ./priv/bin ./priv/bin/
 COPY --from=UI /ui/dist/ ./priv/ui/dist/
 RUN rebar3 as prod release
 

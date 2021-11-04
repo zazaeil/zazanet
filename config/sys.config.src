@@ -1,2 +1,4 @@
 [{kernel, [{logger_level, ${LOGGER_LEVEL}}]},
- {zazanet, [{port, ${PORT}}]}].
+ {zazanet, [{port, ${PORT}},
+            {elasticsearch_port, ${ELASTICSEARCH_PORT}},
+            {elasticsearch_vsn, ${ELASTICSEARCH_VSN}}]}].

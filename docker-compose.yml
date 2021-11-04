@@ -8,18 +8,12 @@ services:
       dockerfile: ./docker/Dockerfile
     environment:
       SCHEDULERS: 1
-      PORT: ${PORT}
       LOGGER_LEVEL: ${LOGGER_LEVEL}
+      PORT: ${PORT}
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_VSN: 7.15.1
     network_mode: host
     command: foreground
-
-  mdns:
-    build:
-      context: ./docker
-      dockerfile: ./Avahi.Dockerfile
-    environment:
-      PORT: ${PORT}
-    network_mode: host
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.15.1

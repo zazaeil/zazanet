@@ -6,7 +6,7 @@
                                         stdlib,
                                         sasl, %% sasl is not needed, but otherwise misleading warnings are generated...
                                         cowboy]},
-                        {env,[]},
+                        {env,[{port, 8080}, {elasticsearch_port, 9200}]},
                         {modules, []},
                         {licenses, ["Apache 2.0"]},
                         {links, []}]}.
