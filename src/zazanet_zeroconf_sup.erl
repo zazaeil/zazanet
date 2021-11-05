@@ -16,14 +16,19 @@ init(#{port := Port, elasticsearch_port := ElasticSearchPort}) ->
             intensity => 2,
             period => 1},
           [#{id => zazanet_zeroconf,
-             start => {zazanet_zeroconf, start_link, [[{zeroconf_services, [#zeroconf_service{pretty_name="Zazanet Backend",
-                                                                                              port=Port,
-                                                                                              wait_seconds=5,
-                                                                                              zazanet_service={"backend", zazanet_app}},
-                                                                            #zeroconf_service{pretty_name="Elasticsearch",
-                                                                                              port=ElasticSearchPort,
-                                                                                              wait_seconds=30,
-                                                                                              zazanet_service={"elasticsearch", application:get_env(elasticsearch_vsn)}}]}]]},
+             start => {zazanet_zeroconf,
+                       start_link,
+                       [[{zeroconf_services, [#zeroconf_service{pretty_name="Zazanet Backend",
+                                                                port=Port,
+                                                                wait_seconds=5,
+                                                                zazanet_service={"backend", zazanet_app}},
+                                              #zeroconf_service{pretty_name="Elasticsearch",
+                                                                port=ElasticSearchPort,
+                                                                wait_seconds=30,
+                                                                zazanet_service={"elasticsearch", case application:get_env(elasticsearch_vsn) of
+                                                                                                      undefined -> undefined;
+                                                                                                      {ok, Res} -> Res
+                                                                                                  end}}]}]]},
              restart => permanent,
              shutdown => 5000,
              type => worker}]}}.

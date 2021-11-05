@@ -4,8 +4,9 @@
                         {mod, {zazanet_app, []}},
                         {applications, [kernel,
                                         stdlib,
-                                        sasl, %% sasl is not needed, but otherwise misleading warnings are generated...
-                                        cowboy]},
+                                        sasl, % sasl is not needed, but otherwise misleading warnings are generated...
+                                        cowboy,
+                                        jiffy]},
                         {env,[{port, 8080}, {elasticsearch_port, 9200}]},
                         {modules, []},
                         {licenses, ["Apache 2.0"]},

@@ -7,11 +7,12 @@ services:
       context: .
       dockerfile: ./docker/Dockerfile
     environment:
-      SCHEDULERS: 1
-      LOGGER_LEVEL: ${LOGGER_LEVEL}
-      PORT: ${PORT}
-      ELASTICSEARCH_PORT: 9200
-      ELASTICSEARCH_VSN: 7.15.1
+      ZNET_SCHEDULERS: 1
+      ZNET_LOGGER_LEVEL: ${ZNET_LOGGER_LEVEL}
+      ZNET_BACKEND_VSN: ${ZNET_BACKEND_VSN}
+      ZNET_PORT: ${ZNET_PORT}
+      ZNET_ELASTICSEARCH_PORT: 9200
+      ZNET_ELASTICSEARCH_VSN: "\"7.15.1\""
     network_mode: host
     command: foreground
 

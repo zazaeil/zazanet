@@ -1,4 +1,5 @@
-[{kernel, [{logger_level, ${LOGGER_LEVEL}}]},
- {zazanet, [{port, ${PORT}},
-            {elasticsearch_port, ${ELASTICSEARCH_PORT}},
-            {elasticsearch_vsn, ${ELASTICSEARCH_VSN}}]}].
+[{kernel, [{logger_level, ${ZNET_LOGGER_LEVEL}}]},
+ {zazanet, [{vsn, ${ZNET_BACKEND_VSN}},
+            {port, ${ZNET_PORT}},
+            {elasticsearch_port, ${ZNET_ELASTICSEARCH_PORT}},
+            {elasticsearch_vsn, ${ZNET_ELASTICSEARCH_VSN}}]}].
