@@ -23,4 +23,8 @@ init(Args) ->
                                                             elasticsearch_port => proplists:get_value(elasticsearch_port, Args)}]},
              restart => permanent,
              shutdown => 10000,
-             type => supervisor}]}}.
+             type => supervisor},
+           #{id => zazanet_cfg,
+             start => {zazanet_cfg, start_link, [Args]},
+             restart => permanent,
+             shutdown => 1000}]}}.

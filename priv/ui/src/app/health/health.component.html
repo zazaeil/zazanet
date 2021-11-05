@@ -1,0 +1,35 @@
+<div *ngIf="services.length > 0; then hasServices else noServices"></div>
+<ng-template #hasServices>
+  <mat-accordion>
+    <mat-expansion-panel hideToggle *ngFor="let service of services;">
+      <mat-expansion-panel-header>
+        <mat-panel-title class="vcenter">
+          <b>{{service.service}}</b>
+        </mat-panel-title>
+        <mat-panel-description>
+          <button *ngIf="service.health === 'green'" mat-icon-button color="secondary">
+            <mat-icon >thumb_up_alt</mat-icon>
+            {{service.health}}
+          </button>
+          <button *ngIf="service.health === 'yellow' || service.health === 'red'" mat-icon-button color="secondary">
+            <mat-icon >thumb_down_alt</mat-icon>
+            {{service.health}}
+          </button>
+        </mat-panel-description>
+      </mat-expansion-panel-header>
+      <mat-list>
+        <mat-list-item *ngFor="let kvp of keysof(service.info);">
+          {{kvp[0]}}: {{kvp[1]}}
+        </mat-list-item>
+      </mat-list>
+    </mat-expansion-panel>
+  </mat-accordion>
+</ng-template>
+<ng-template #noServices>
+  <mat-card>
+    <mat-card-title class="vcenter">L O A D I N G</mat-card-title>
+    <mat-card-content>
+      <mat-spinner style="margin:0 auto;" mode="indeterminate"></mat-spinner>
+    </mat-card-content>
+  </mat-card>
+</ng-template>

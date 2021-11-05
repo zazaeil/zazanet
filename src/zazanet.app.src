@@ -5,6 +5,8 @@
                         {applications, [kernel,
                                         stdlib,
                                         sasl, % sasl is not needed, but otherwise misleading warnings are generated...
+                                        ssl,
+                                        inets,
                                         cowboy,
                                         jiffy]},
                         {env,[{port, 8080}, {elasticsearch_port, 9200}]},

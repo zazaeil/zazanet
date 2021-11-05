@@ -18,13 +18,13 @@ init(#{port := Port, elasticsearch_port := ElasticSearchPort}) ->
           [#{id => zazanet_zeroconf,
              start => {zazanet_zeroconf,
                        start_link,
-                       [[{zeroconf_services, [#zeroconf_service{pretty_name="Zazanet Backend",
+                       [[{zeroconf_services, [#zeroconf_service{pretty_name="zazanet-backend",
                                                                 port=Port,
                                                                 wait_seconds=5,
                                                                 zazanet_service={"backend", zazanet_app}},
-                                              #zeroconf_service{pretty_name="Elasticsearch",
+                                              #zeroconf_service{pretty_name="zazanet-elasticsearch",
                                                                 port=ElasticSearchPort,
-                                                                wait_seconds=30,
+                                                                wait_seconds=5,
                                                                 zazanet_service={"elasticsearch", case application:get_env(elasticsearch_vsn) of
                                                                                                       undefined -> undefined;
                                                                                                       {ok, Res} -> Res

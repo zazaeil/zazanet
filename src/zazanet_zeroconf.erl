@@ -72,12 +72,14 @@ publish(ZeroconfService=#zeroconf_service{}) ->
 
 open_zeroconf_port(#zeroconf_service{pretty_name=PrettyName,
                                      port=Port,
+                                     service=Service, % like the "_http._tcp"
                                      wait_seconds=WaitSeconds,
                                      zazanet_service={ZnetServiceName, ZnetServiceVSN}}) ->
-    CMD = io_lib:format("~s -name \"~s\" -port ~B -wait ~B -zazanet-service \"~s:~s\"",
+    CMD = io_lib:format("~s -name \"~s\" -port ~B -service ~s -wait ~B -zazanet-service \"~s:~s\"",
                         [filename:join([code:priv_dir(zazanet), "bin", "zeroconf"]),
                          PrettyName,
                          Port,
+                         Service,
                          WaitSeconds,
                          ZnetServiceName,
                          vsn(ZnetServiceVSN)]),
