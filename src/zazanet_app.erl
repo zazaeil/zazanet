@@ -12,12 +12,13 @@
 -export([vsn/0]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Port} = application:get_env(port),
-    {ok, ElasticSearchPort} = application:get_env(elasticsearch_port),
+    {ok, Port} = application:get_env(zazanet, port),
+    ElasticSearchPort = application:get_env(zazanet, elasticsearch_port, undefined),
     {ok, _} = cowboy:start_clear(
                 http,
                 [{port, Port}],
                 #{env => #{dispatch => cowboy_router:compile([{'_', [{"/api/health", zazanet_http_health_h, []},
+                                                                     {"/api/v1/services", zazanet_http_services_h, []},
                                                                      {"/api/v1/data", zazanet_http_data_h, []},
                                                                      {"/", cowboy_static, {priv_file, zazanet, "ui/dist/ui/index.html"}},
                                                                      {"/[...]", cowboy_static, {priv_dir, zazanet, "ui/dist/ui"}}]}])}}),

@@ -9,7 +9,7 @@
                                         inets,
                                         cowboy,
                                         jiffy]},
-                        {env,[{port, 8080}, {elasticsearch_port, 9200}]},
+                        {env, [{port, 80}]},
                         {modules, []},
                         {licenses, ["Apache 2.0"]},
                         {links, []}]}.

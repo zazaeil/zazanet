@@ -17,8 +17,8 @@ handle(Req, State) ->
     {HTTPHealth, HTTPInfo} = health_of(http),
     {ZconfHealth, ZconfInfo} = health_of(zeroconf),
     {ElasticSearchHealth, ElasticSearchInfo} = health_of(elasticsearch),
-    EnsureInfo = fun(Info) -> case
-                                  Info of no_info -> #{};
+    EnsureInfo = fun(Info) -> case Info of
+                                  no_info -> #{};
                                   _ -> Info
                               end
                  end,

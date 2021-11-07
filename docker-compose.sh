@@ -1,1 +1,3 @@
-sudo ZNET_SCHEDULERS=1 ZNET_LOGGER_LEVEL=debug ZNET_BACKEND_VSN=\"$(git rev-parse --short HEAD)\" ZNET_PORT=80 ZNET_ELASTICSEARCH_PORT=9200 ZNET_ELASTICSEARCH_VSN="\"7.15.1\"" docker-compose up --build
+eval "export $(cat .env.src | paste -s -d" ")"
+env | grep ZNET_ | paste -s -d"\n" > .env
+sudo docker-compose up --build

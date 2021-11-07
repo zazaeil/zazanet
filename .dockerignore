@@ -1,6 +1,7 @@
 priv/ui/node_modules
 priv/ui/dist
 
+.env
 docker
 docker-compose.yml
 .rebar3

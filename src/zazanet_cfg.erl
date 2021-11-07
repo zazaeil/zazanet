@@ -20,9 +20,15 @@ init(Args) ->
 handle_call({get, Key}, _From, State) ->
     Response = case maps:get(Key, State, undefined) of
                    undefined ->
-                       logger:debug(#{event => {get, Key}, error => undefined}),
-                       undefined;
-                   Value -> {ok, Value}
+                       case get(env, Key) of
+                           undefined ->
+                               logger:debug(#{event => {get, Key}, error => undefined}),
+                               undefined;
+                           Value ->
+                               {ok, Value}
+                       end;
+                   Value ->
+                       {ok, Value}
                end,
     {reply, Response, State}.
 
@@ -34,3 +40,14 @@ handle_info(_Info, State) ->
 
 get(Key) when is_atom(Key) ->
     gen_server:call(?MODULE, {get, Key}).
+
+get(env, vsn) ->
+    os:getenv("ZNET_BACKEND_VSN", undefined);
+get(env, port) ->
+    os:getenv("ZNET_PORT", undefined);
+get(env, elasticsearch_port) ->
+    os:getenv("ZNET_ELASTICSEARCH_PORT", undefined);
+get(env, elasticsearch_vsn) ->
+    os:getenv("ZNET_ELASTICSEARCH_VSN", undefined);
+get(env, _) ->
+    undefined.
