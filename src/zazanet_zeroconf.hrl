@@ -1,4 +1,5 @@
 -record(zeroconf_service, {name :: string(),
-                           service_type :: {string(), string()},
+                           type :: {Service :: string(), Protocol :: string()},
                            domain :: string(),
-                           port :: inet:port_number()}).
+                           port :: inet:port_number(),
+                           txts :: [{Key :: string(), Value :: string()}]}).

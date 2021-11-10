@@ -42,8 +42,8 @@ health_of(elasticsearch) ->
     case zazanet_cfg:get(elasticsearch_port) of
         undefined ->
             {red, no_info};
-        {ok, Port} ->
-            Host = io_lib:format("~s:~B", [inet:ntoa(ipv4_addr()), Port]),
+        {ok, ElasticSearchPort} ->
+            Host = io_lib:format("~s:~s", [inet:ntoa(ipv4_addr()), ElasticSearchPort]),
             case httpc:request(io_lib:format("http://~s/_cluster/health", [Host])) of
                 {ok, {{_, 200, _}, _, Body}} ->
                     {JSON} = jiffy:decode(Body),

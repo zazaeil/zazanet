@@ -13,7 +13,6 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Port} = application:get_env(zazanet, port),
-    ElasticSearchPort = application:get_env(zazanet, elasticsearch_port, undefined),
     {ok, _} = cowboy:start_clear(
                 http,
                 [{port, Port}],
@@ -22,8 +21,7 @@ start(_StartType, _StartArgs) ->
                                                                      {"/api/v1/data", zazanet_http_data_h, []},
                                                                      {"/", cowboy_static, {priv_file, zazanet, "ui/dist/ui/index.html"}},
                                                                      {"/[...]", cowboy_static, {priv_dir, zazanet, "ui/dist/ui"}}]}])}}),
-    zazanet_sup:start_link([{port, Port},
-                            {elasticsearch_port, ElasticSearchPort}]).
+    zazanet_sup:start_link([{port, Port}]).
 
 stop(_State) ->
     ok = cowboy:stop_listener(http).

@@ -13,16 +13,19 @@ start_link() ->
 
 init([]) ->
     {ok, Port} = zazanet_cfg:get(port),
+    {ok, VSN} = zazanet_cfg:get(vsn),
     {ok, {#{strategy => one_for_one,
             intensity => 5,
             period => 5},
           [#{id => zazanet_zeroconf,
              start => {zazanet_zeroconf,
                        start_link,
-                       [[{zeroconf_services, [#zeroconf_service{name="zazanet",
-                                                                service_type={"_http", "_tcp"},
+                       [[{zeroconf_services, [#zeroconf_service{name="zazanet-backend", % an important constant, you can't change it
+                                                                type={"_http", "_tcp"},
                                                                 domain="local.",
-                                                                port=Port}]}]]},
+                                                                port=Port,
+                                                                txts=[{"zazanet-service", "backend"},
+                                                                      {"zazanet-service-version", VSN}]}]}]]},
              restart => permanent,
              shutdown => 5000,
              type => worker}]}}.

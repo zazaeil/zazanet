@@ -21,42 +21,31 @@ init(Args) ->
     {ok, #state{}}.
 
 handle_call(health, _From, State=#state{ports=Ports}) ->
-    ZeroconfServices = maps:keys(Ports),
-    case lists:filter(fun (#zeroconf_service{name=Name}) -> Name =:= "backend" end, ZeroconfServices) of
-        [#zeroconf_service{port=HTTPPort} | []] ->
-            {reply, {green, #{port => HTTPPort, vsn => zazanet_cfg:get(vsn)}}, State};
+    Keys = maps:keys(Ports),
+    case lists:filter(fun ({Name, _, _}) -> Name =:= "zazanet-backend" end, Keys) of
+        [_ | []] ->
+            {ok, VSN} = zazanet_cfg:get(vsn),
+            {ok, HTTPPort} = zazanet_cfg:get(port),
+            {reply, {green, #{vsn => list_to_binary(VSN), port => HTTPPort}}, State};
         _ ->
             {reply, {red, no_info}, State}
     end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({publish, ZeroconfService=#zeroconf_service{name=Name, service_type={Type, Protocol}}}, State=#state{ports=Ports}) ->
-    %% that's not the mistake: unless the `zazanet` application has came into the `running` state,
-    %% the `zazanet_app:vsn()` call returns `undefined`... and yet `handle_cast` is invoked during
-    %% it's startup... so this extra care is needed to ensure that the app has started and it's
-    %% version is there
-    ok = application:ensure_started(zazanet),
-    Key = {Name, Type, Protocol},
-    ok = case maps:is_key(Key, Ports) of
-             true ->
-                 Port = maps:get(Key, Ports),
-                 ok = port_close(Port);
-             false ->
-                 ok
-         end,
-    {noreply, State#state{ports=maps:merge(Ports, #{ZeroconfService => open_zeroconf_port(ZeroconfService)})}}.
+handle_cast({publish, ZeroconfService=#zeroconf_service{name=Name, type={Type, Protocol}}}, State=#state{ports=Ports}) ->
+    Key = key(ZeroconfService),
+    case maps:is_key(Key, Ports) of
+        true ->
+            port_close(maps:get(Key, Ports)),
+            ok;
+        false ->
+            ok
+    end,
+    {noreply, State#state{ports=maps:put(Key, open_zeroconf_port(ZeroconfService), Ports)}}.
 
-handle_info(Info={'EXIT', Port, normal}, State=#state{ports=Ports}) ->
-    logger:notice("~p", [Info]),
-    case find_by_port(Port, maps:to_list(Ports)) of
-        undefined ->
-            logger:error(#{event => {'EXIT', normal}, error => undefined, port => Port, msg => "Can't find the given port."}),
-            {noreply, State};
-        ZeroconfService=#zeroconf_service{name=Name} ->
-            logger:notice(#{zeroconf_service => Name, event => {'EXIT', normal}, action => restart}),
-            {noreply, State#state{ports=maps:update(ZeroconfService, open_zeroconf_port(ZeroconfService), Ports)}}
-    end;
+handle_info({'EXIT', Port, _}, State=#state{ports=Ports}) ->
+    {stop, badstate, State#state{ports=maps:from_list([Pair || Pair={_, MaybeExitPort} <- maps:to_list(Ports), Port =/= MaybeExitPort])}};
 handle_info(Info, State) ->
     {noreply, State}.
 
@@ -71,20 +60,24 @@ publish(ZeroconfService) ->
     gen_server:cast(?MODULE, {publish, ZeroconfService}).
 
 open_zeroconf_port(#zeroconf_service{name=Name,
-                                     service_type={Type, Protocol},
+                                     type={Service, Protocol},
                                      domain=Domain,
-                                     port=Port}) ->
-    CMD = io_lib:format("~s -name \"~s\" -service \"~s.~s\" -domain \"~s\" -port ~B",
+                                     port=Port,
+                                     txts=TXTs}) ->
+    CMD = io_lib:format("~s -name \"~s\" -type \"~s.~s\" -domain \"~s\" -port ~B -txts \"~s\"",
                         [filename:join([code:priv_dir(zazanet), "bin", "zeroconf"]),
                          Name,
-                         Type,
+                         Service,
                          Protocol,
                          Domain,
-                         Port]),
+                         Port,
+                         string:join(lists:map(fun({Key, Value}) ->
+                                                       io_lib:format("~s=~s", [Key, Value])
+                                               end,
+                                               TXTs),
+                                     ";")]),
     logger:debug(#{event => zeroconf, cmd => CMD}),
     open_port({spawn, CMD}, []).
 
-find_by_port(_, []) -> undefined;
-find_by_port(Port, [{ZeroconfService, Port} | _]) ->
-    ZeroconfService;
-find_by_port(Port, [_ | List]) -> find_by_port(Port, List).
+key(#zeroconf_service{name=Name, type={Type, Protocol}}) ->
+    {Name, Type, Protocol}.
