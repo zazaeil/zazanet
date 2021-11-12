@@ -1,3 +1,4 @@
+{"1.2.0",
 [{<<"cowboy">>,
   {git,"git://github.com/ninenines/cowboy.git",
        {ref,"04ca4c5d31a92d4d3de087bbd7d6021dc4a6d409"}},
@@ -10,7 +11,18 @@
   {git,"https://github.com/davisp/jiffy",
        {ref,"60043d5604564d86244d6fd28c90050b09ee0807"}},
   0},
+ {<<"jsonformat">>,
+  {git,"https://github.com/kivra/jsonformat",
+       {ref,"0c19fefcecd457d26baec1bc3c58589c76332436"}},
+  0},
+ {<<"jsx">>,{pkg,<<"jsx">>,<<"2.9.0">>},1},
  {<<"ranch">>,
   {git,"https://github.com/ninenines/ranch",
        {ref,"a692f44567034dacf5efcaa24a24183788594eb7"}},
-  1}].
+  1}]}.
+[
+{pkg_hash,[
+ {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>}]},
+{pkg_hash_ext,[
+ {<<"jsx">>, <<"8EE1DB1CABAFDD578A2776A6AAAE87C2A8CE54B47B59E9EC7DAB5D7EB71CD8DC">>}]}
+].

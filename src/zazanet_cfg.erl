@@ -18,12 +18,18 @@ init(Args) ->
     {ok, State}.
 
 handle_call({get, Key}, _From, State) ->
+    %% State -> Erlang Env -> OS Env
     Response = case maps:get(Key, State, undefined) of
                    undefined ->
-                       case get(env, Key) of
+                       case get(erl_env, Key) of
                            undefined ->
-                               logger:debug(#{event => {get, Key}, error => undefined}),
-                               undefined;
+                               case get(os_env, Key) of
+                                   undefined ->
+                                       logger:debug(#{event => {get, Key}, error => undefined}),
+                                       undefined;
+                                   Value ->
+                                       {ok, Value}
+                               end;
                            Value ->
                                {ok, Value}
                        end;
@@ -41,13 +47,20 @@ handle_info(_Info, State) ->
 get(Key) when is_atom(Key) ->
     gen_server:call(?MODULE, {get, Key}).
 
-get(env, vsn) ->
+get(erl_env, Key) ->
+    case application:get_env(Key) of
+        {ok, Value} ->
+            Value;
+        undefined ->
+            undefined
+    end;
+get(os_env, vsn) ->
     os:getenv("ZNET_BACKEND_VSN", undefined);
-get(env, port) ->
+get(os_env, port) ->
     os:getenv("ZNET_PORT", undefined);
-get(env, elasticsearch_port) ->
+get(os_env, elasticsearch_port) ->
     os:getenv("ZNET_ELASTICSEARCH_PORT", undefined);
-get(env, elasticsearch_vsn) ->
+get(os_env, elasticsearch_vsn) ->
     os:getenv("ZNET_ELASTICSEARCH_VSN", undefined);
-get(env, _) ->
+get(_, _) ->
     undefined.

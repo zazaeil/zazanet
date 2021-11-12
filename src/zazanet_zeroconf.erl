@@ -33,7 +33,7 @@ handle_call(health, _From, State=#state{ports=Ports}) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({publish, ZeroconfService=#zeroconf_service{name=Name, type={Type, Protocol}}}, State=#state{ports=Ports}) ->
+handle_cast({publish, ZeroconfService=#zeroconf_service{}}, State=#state{ports=Ports}) ->
     Key = key(ZeroconfService),
     case maps:is_key(Key, Ports) of
         true ->
@@ -46,7 +46,7 @@ handle_cast({publish, ZeroconfService=#zeroconf_service{name=Name, type={Type, P
 
 handle_info({'EXIT', Port, _}, State=#state{ports=Ports}) ->
     {stop, badstate, State#state{ports=maps:from_list([Pair || Pair={_, MaybeExitPort} <- maps:to_list(Ports), Port =/= MaybeExitPort])}};
-handle_info(Info, State) ->
+handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{ports=Ports}) ->

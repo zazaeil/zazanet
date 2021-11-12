@@ -15,5 +15,6 @@ content_types_accepted(Req, State) ->
 
 handle(Req, State) ->
     {ok, Body, _} = cowboy_req:read_body(Req),
-    logger:debug("~p", [Body]),
+    [JSON] = jiffy:decode(Body),
+    logger:debug(#{body => JSON}),
     {true, Req, State}.

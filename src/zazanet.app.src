@@ -4,12 +4,13 @@
                         {mod, {zazanet_app, []}},
                         {applications, [kernel,
                                         stdlib,
+                                        jsonformat,
                                         sasl, % sasl is not needed, but otherwise misleading warnings are generated...
                                         ssl,
                                         inets,
                                         cowboy,
                                         jiffy]},
-                        {env, [{port, 80}]},
+                        {env, []},
                         {modules, []},
                         {licenses, ["Apache 2.0"]},
                         {links, []}]}.
