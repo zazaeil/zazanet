@@ -28,10 +28,9 @@ handle_call({get, Key}, _From, State) ->
                                        logger:debug(#{event => {get, Key}, error => undefined}),
                                        undefined;
                                    Value ->
-                                       {ok, Value}
+                                       Value
                                end;
-                           Value ->
-                               {ok, Value}
+                           Value -> Value
                        end;
                    Value ->
                        {ok, Value}
@@ -49,18 +48,38 @@ get(Key) when is_atom(Key) ->
 
 get(erl_env, Key) ->
     case application:get_env(Key) of
-        {ok, Value} ->
-            Value;
         undefined ->
-            undefined
+            undefined;
+        Value ->
+            Value
     end;
 get(os_env, vsn) ->
-    os:getenv("ZNET_BACKEND_VSN", undefined);
+    case os:getenv("ZNET_BACKEND_VSN") of
+        false ->
+            undefined;
+        Value ->
+            {ok, Value}
+    end;
 get(os_env, port) ->
-    os:getenv("ZNET_PORT", undefined);
+    case os:getenv("ZNET_PORT") of
+        false ->
+            undefined;
+        Value ->
+            {ok, Value}
+    end;
 get(os_env, elasticsearch_port) ->
-    os:getenv("ZNET_ELASTICSEARCH_PORT", undefined);
+    case os:getenv("ZNET_ELASTICSEARCH_PORT") of
+        false ->
+            undefined;
+        Value ->
+            {ok, Value}
+    end;
 get(os_env, elasticsearch_vsn) ->
-    os:getenv("ZNET_ELASTICSEARCH_VSN", undefined);
+    case os:getenv("ZNET_ELASTICSEARCH_VSN") of
+        false ->
+            undefined;
+        Value ->
+            {ok, Value}
+    end;
 get(_, _) ->
     undefined.

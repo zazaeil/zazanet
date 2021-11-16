@@ -64,8 +64,22 @@ open_zeroconf_port(#zeroconf_service{name=Name,
                                      domain=Domain,
                                      port=Port,
                                      txts=TXTs}) ->
-    CMD = io_lib:format("~s -name \"~s\" -type \"~s.~s\" -domain \"~s\" -port ~B -txts \"~s\"",
-                        [filename:join([code:priv_dir(zazanet), "bin", "zeroconf"]),
+    %% that's probably wrong or too limited...
+    %% the problem here is that multiple IPs are pusblished (per each network interface),
+    %% however open source mDSN implementations for microcontrollers like ESP32, ESP8266
+    %% do not support multiple IPs (at least by the end of 2021); so we have to cut them off somewhere...
+    %% the filter below, `[up, broadcast, running, multicast]` seems to work OK on the Linux machines I've tested it
+    %% even if Docker is installed (and thus its `docker0` interface exists)
+    {ok, IfaceNames} = net:getifaddrs(#{family => inet, flags => [up, broadcast, running, multicast]}),
+    WantedIPv4 = ipv4(),
+    [#{name := IfaceName}] = lists:filter(fun (#{addr := #{addr := IP}}) ->
+                                                  WantedIPv4 =:= IP;
+                                              (_) ->
+                                                  false
+                                          end,
+                                          IfaceNames),
+    CMD = io_lib:format("~s -name \"~s\" -type \"~s.~s\" -domain \"~s\" -port ~B -txts \"~s\" -iface_names \"~s\"",
+                        [filename:join([code:priv_dir(zazanet), "bin", "zeroconf-7727fc8"]),
                          Name,
                          Service,
                          Protocol,
@@ -75,9 +89,17 @@ open_zeroconf_port(#zeroconf_service{name=Name,
                                                        io_lib:format("~s=~s", [Key, Value])
                                                end,
                                                TXTs),
-                                     ";")]),
+                                     ";"),
+                         IfaceName]),
     logger:debug(#{event => zeroconf, cmd => CMD}),
     open_port({spawn, CMD}, []).
 
 key(#zeroconf_service{name=Name, type={Type, Protocol}}) ->
     {Name, Type, Protocol}.
+
+ipv4() ->
+    {ok, Addrs} = inet:getifaddrs(),
+    hd([
+        Addr || {_, Opts} <- Addrs, {addr, Addr} <- Opts,
+                size(Addr) == 4, Addr =/= {127,0,0,1}
+       ]).
