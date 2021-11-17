@@ -26,7 +26,7 @@ handle_call(health, _From, State=#state{ports=Ports}) ->
         [_ | []] ->
             {ok, VSN} = zazanet_cfg:get(vsn),
             {ok, HTTPPort} = zazanet_cfg:get(port),
-            {reply, {green, #{vsn => list_to_binary(VSN), port => HTTPPort}}, State};
+            {reply, {green, #{vsn => VSN, port => HTTPPort}}, State};
         _ ->
             {reply, {red, no_info}, State}
     end;

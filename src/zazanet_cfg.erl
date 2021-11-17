@@ -27,13 +27,14 @@ handle_call({get, Key}, _From, State) ->
                                    undefined ->
                                        logger:debug(#{event => {get, Key}, error => undefined}),
                                        undefined;
-                                   Value ->
-                                       Value
+                                   {ok, Value} ->
+                                       {ok, typed(Key, Value)}
                                end;
-                           Value -> Value
+                           {ok, Value} ->
+                               {ok, typed(Key, Value)}
                        end;
                    Value ->
-                       {ok, Value}
+                       {ok, typed(Key, Value)}
                end,
     {reply, Response, State}.
 
@@ -50,8 +51,8 @@ get(erl_env, Key) ->
     case application:get_env(Key) of
         undefined ->
             undefined;
-        Value ->
-            Value
+        Res={ok, _} ->
+            Res
     end;
 get(os_env, vsn) ->
     case os:getenv("ZNET_BACKEND_VSN") of
@@ -83,3 +84,16 @@ get(os_env, elasticsearch_vsn) ->
     end;
 get(_, _) ->
     undefined.
+
+typed(port, V)
+  when is_list(V) ->
+    list_to_integer(V);
+typed(vsn, V)
+  when is_atom(V) ->
+    atom_to_list(V);
+typed(elasticsearch_port, V) ->
+    typed(port, V);
+typed(elasticsearch_vsn, V) ->
+    typed(vsn, V);
+typed(_, V) ->
+    V.
