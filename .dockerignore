@@ -1,5 +1,6 @@
 priv/ui/node_modules
 priv/ui/dist
+priv/esp32
 
 .env
 docker
