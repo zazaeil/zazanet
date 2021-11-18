@@ -2,7 +2,7 @@
 
 -behaviour(gen_server).
 
--include("zazanet_zeroconf.hrl").
+-include("zazanet_zeroconf_service.hrl").
 
 -export([start_link/1]).
 
@@ -33,7 +33,7 @@ handle_call(health, _From, State=#state{ports=Ports}) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({publish, ZeroconfService=#zeroconf_service{}}, State=#state{ports=Ports}) ->
+handle_cast({publish, ZeroconfService=#zazanet_zeroconf_service{}}, State=#state{ports=Ports}) ->
     Key = key(ZeroconfService),
     case maps:is_key(Key, Ports) of
         true ->
@@ -59,11 +59,11 @@ health() ->
 publish(ZeroconfService) ->
     gen_server:cast(?MODULE, {publish, ZeroconfService}).
 
-open_zeroconf_port(#zeroconf_service{name=Name,
-                                     type={Service, Protocol},
-                                     domain=Domain,
-                                     port=Port,
-                                     txts=TXTs}) ->
+open_zeroconf_port(#zazanet_zeroconf_service{name=Name,
+                                             type={Service, Protocol},
+                                             domain=Domain,
+                                             port=Port,
+                                             txts=TXTs}) ->
     %% that's probably wrong or too limited...
     %% the problem here is that multiple IPs are pusblished (per each network interface),
     %% however open source mDSN implementations for microcontrollers like ESP32, ESP8266
@@ -94,12 +94,11 @@ open_zeroconf_port(#zeroconf_service{name=Name,
     logger:debug(#{event => zeroconf, cmd => CMD}),
     open_port({spawn, CMD}, []).
 
-key(#zeroconf_service{name=Name, type={Type, Protocol}}) ->
+key(#zazanet_zeroconf_service{name=Name, type={Type, Protocol}}) ->
     {Name, Type, Protocol}.
 
 ipv4() ->
     {ok, Addrs} = inet:getifaddrs(),
-    hd([
-        Addr || {_, Opts} <- Addrs, {addr, Addr} <- Opts,
-                size(Addr) == 4, Addr =/= {127,0,0,1}
-       ]).
+    hd([Addr || {_, Opts} <- Addrs, {addr, Addr} <- Opts,
+                size(Addr) == 4,
+                Addr =/= {127, 0, 0, 1}]).

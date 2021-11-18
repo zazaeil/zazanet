@@ -1,8 +1,3 @@
-%%%-------------------------------------------------------------------
-%% @doc zazanet top level supervisor.
-%% @end
-%%%-------------------------------------------------------------------
-
 -module(zazanet_sup).
 
 -behaviour(supervisor).
@@ -18,16 +13,18 @@ init(Args) ->
     {ok, {#{strategy => one_for_all,
             intensity => 5,
             period => 1},
-          [#{id => zazanet_cfg,
+          [#{id => pg,
+             start => {pg, start_link, [zazanet]},
+             restart => permanent},
+           #{id => zazanet_cfg,
              start => {zazanet_cfg, start_link, [Args]},
-             restart => permanent,
-             shutdown => 1000},
+             restart => permanent},
            #{id => zazanet_zeroconf_sup,
              start => {zazanet_zeroconf_sup, start_link, []},
              restart => permanent,
-             shutdown => 10000,
+             shutdown => 1000,
              type => supervisor},
-           #{id => zazanet_services,
-             start => {zazanet_services, start_link, []},
+           #{id => zazanet_devices_sup,
+             start => {zazanet_devices_sup, start_link, []},
              restart => permanent,
-             shutdown => 1000}]}}.
+             type => supervisor}]}}.
