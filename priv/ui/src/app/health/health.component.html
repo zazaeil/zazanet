@@ -1,7 +1,7 @@
 <div *ngIf="services.length > 0; then hasServices else noServices"></div>
 <ng-template #hasServices>
-  <mat-accordion>
-    <mat-expansion-panel hideToggle *ngFor="let service of services;">
+  <mat-accordion multi>
+    <mat-expansion-panel (opened)="opened(service.service)" (closed)="closed(service.service)" [expanded]="isOpened(service.service)" *ngFor="let service of services;">
       <mat-expansion-panel-header>
         <mat-panel-title class="vcenter">
           <b>{{service.service}}</b>
@@ -29,7 +29,7 @@
   <mat-card>
     <mat-card-title class="vcenter">L O A D I N G</mat-card-title>
     <mat-card-content>
-      <mat-spinner style="margin:0 auto;" mode="indeterminate"></mat-spinner>
+      <mat-spinner style="margin:10% auto;" mode="indeterminate"></mat-spinner>
     </mat-card-content>
   </mat-card>
 </ng-template>

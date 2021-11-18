@@ -1,5 +1,7 @@
 -module(zazanet_http_health_h).
 
+-include("zazanet_device.hrl").
+
 -export([init/2]).
 -export([allowed_methods/2, content_types_provided/2]).
 -export([handle/2]).
@@ -24,7 +26,21 @@ handle(Req, State) ->
                  end,
     Resp = jiffy:encode([#{service => http, health => HTTPHealth, info => EnsureInfo(HTTPInfo)},
                          #{service => zeroconf, health => ZconfHealth, info => EnsureInfo(ZconfInfo)},
-                         #{service => elasticsearch, health => ElasticSearchHealth, info => EnsureInfo(ElasticSearchInfo)}]),
+                         #{service => elasticsearch, health => ElasticSearchHealth, info => EnsureInfo(ElasticSearchInfo)}
+                        | lists:filtermap(fun(PID) ->
+                                                  try zazanet_device:get(PID, [id, health]) of
+                                                      {ok, [ID, Health]} ->
+                                                          {true, #{service => iolist_to_binary([<<"zazanet_device:">>, integer_to_list(ID)]),
+                                                                   health => Health,
+                                                                   info => #{}}};
+                                                      _ ->
+                                                          false
+                                                  catch
+                                                      _ ->
+                                                          false
+                                                  end
+                                          end,
+                                          pg:get_members(zazanet, zazanet_device))]),
     {Resp, Req, State}.
 
 health_of(http) ->
@@ -48,10 +64,10 @@ health_of(elasticsearch) ->
                 {ok, {{_, 200, _}, _, Body}} ->
                     {JSON} = jiffy:decode(Body),
                     Health = case proplists:get_value(<<"status">>, JSON) of
-                                <<"green">> -> green;
-                                <<"yellow">> -> yellow;
-                                <<"red">> -> red
-                            end,
+                                 <<"green">> -> green;
+                                 <<"yellow">> -> yellow;
+                                 <<"red">> -> red
+                             end,
                     Extra = case httpc:request(io_lib:format("http://~s", [Host])) of
                                 {ok, {{_, 200, _}, _, Body1}} ->
                                     {JSON1} = jiffy:decode(Body1),

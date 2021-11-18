@@ -2,7 +2,7 @@
 
 -behaviour(supervisor).
 
--include("zazanet_zeroconf.hrl").
+-include("zazanet_zeroconf_service.hrl").
 
 -export([start_link/0]).
 
@@ -20,12 +20,12 @@ init([]) ->
           [#{id => zazanet_zeroconf,
              start => {zazanet_zeroconf,
                        start_link,
-                       [[{zeroconf_services, [#zeroconf_service{name="zazanet-backend", % an important constant, you can't change it
-                                                                type={"_http", "_tcp"},
-                                                                domain="local.",
-                                                                port=Port,
-                                                                txts=[{"zazanet-service", "backend"},
-                                                                      {"zazanet-service-version", VSN}]}]}]]},
+                       [[{zeroconf_services, [#zazanet_zeroconf_service{name="zazanet-backend", % an important constant, you can't change it
+                                                                        type={"_http", "_tcp"},
+                                                                        domain="local.",
+                                                                        port=Port,
+                                                                        txts=[{"zazanet-service", "backend"},
+                                                                              {"zazanet-service-version", VSN}]}]}]]},
              restart => permanent,
              shutdown => 5000,
              type => worker}]}}.

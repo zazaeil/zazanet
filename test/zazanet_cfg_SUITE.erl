@@ -9,7 +9,7 @@ suite() ->
 
 init_per_suite(Config) ->
     [{expected_port, 80},
-     {expected_vsn, "v0.0.0"} | Config].
+     {expected_vsn, <<"v0.0.0">>} | Config].
 
 end_per_suite(_Config) ->
     ok.
@@ -27,7 +27,7 @@ init_per_testcase(get_port_when_is_integer, Config) ->
 init_per_testcase(get_vsn_when_is_string, Config) ->
     init_zazanet_cfg([{cfg, [{vsn, ?config(expected_vsn, Config)}]} | Config]);
 init_per_testcase(get_vsn_when_is_atom, Config) ->
-    init_zazanet_cfg([{cfg, [{vsn, list_to_atom(?config(expected_vsn, Config))}]} | Config]);
+    init_zazanet_cfg([{cfg, [{vsn, list_to_atom(binary_to_list(?config(expected_vsn, Config)))}]} | Config]);
 init_per_testcase(_TestCase, Config) ->
     Config.
 

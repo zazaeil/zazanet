@@ -48,7 +48,7 @@ get(Key) when is_atom(Key) ->
     gen_server:call(?MODULE, {get, Key}).
 
 get(erl_env, Key) ->
-    case application:get_env(Key) of
+    case application:get_env(zazanet, Key) of
         undefined ->
             undefined;
         Res={ok, _} ->
@@ -88,9 +88,15 @@ get(_, _) ->
 typed(port, V)
   when is_list(V) ->
     list_to_integer(V);
+typed(port, V)
+  when is_binary(V) ->
+    binary_to_integer(V);
 typed(vsn, V)
   when is_atom(V) ->
-    atom_to_list(V);
+    list_to_binary(atom_to_list(V));
+typed(vsn, V)
+  when is_list(V) ->
+    list_to_binary(V);
 typed(elasticsearch_port, V) ->
     typed(port, V);
 typed(elasticsearch_vsn, V) ->

@@ -13,6 +13,7 @@ COPY rebar.config rebar.lock ./
 RUN rebar3 compile
 
 COPY ./config ./config/
+COPY ./include ./include/
 COPY ./src ./src/
 COPY ./priv/bin ./priv/bin/
 COPY --from=UI /ui/dist/ ./priv/ui/dist/
