@@ -11,7 +11,6 @@ const char* password =  "";
 
 void setup() {
   Serial.begin(115200);
-
   Serial.setTimeout(1000);
 
   while (!Serial) { }
@@ -38,7 +37,6 @@ void loop() {
     for (int i = 0; i < servicesSize; i++) {
       if (MDNS.txt(i, "zazanet-service") == "backend") {
         zazanetBackendIndex = i;
-
         break;
       }
     }
