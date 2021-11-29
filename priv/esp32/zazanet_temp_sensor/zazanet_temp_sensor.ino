@@ -11,11 +11,11 @@ const char* password =  "";
 
 void setup() {
   Serial.begin(115200);
-  
+
   Serial.setTimeout(1000);
 
   while (!Serial) { }
-  
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
   }
@@ -25,14 +25,14 @@ void setup() {
 void loop() {
    if (!MDNS.begin(DEVICE.c_str())) {
     Serial.println("[ERROR] mDNS failed to start");
-    
+
     return;
   }
-    
+
   int servicesSize = MDNS.queryService("http", "tcp");
   Serial.printf("Discovered %i \"_http._tcp\" mDSN services.\n", servicesSize);
   if (servicesSize == 0) {
-    return;  
+    return;
   } else {
     int zazanetBackendIndex = -1;
     for (int i = 0; i < servicesSize; i++) {
@@ -48,9 +48,9 @@ void loop() {
     }
 
     String zazanetBackendIP = MDNS.IP(zazanetBackendIndex).toString();
-    
+
     HTTPClient http;
-    http.begin("http://" + zazanetBackendIP + ":" + MDNS.port(zazanetBackendIndex) + "/api/v1/data");   
+    http.begin("http://" + zazanetBackendIP + ":" + MDNS.port(zazanetBackendIndex) + "/api/v1/data");
     // all headers are important, otherwise the backend will reject them
     http.addHeader("Content-Type", "application/json");
     http.setUserAgent(DEVICE + "/" + DEVICE_VSN);
@@ -60,9 +60,9 @@ void loop() {
         "{"
           " \"hello\": \"world\" "
         "}");
-    Serial.printf("[%i] POST %s:%i/api/v1/data\n", httpStatusCode, zazanetBackendIP.c_str(), MDNS.port(zazanetBackendIndex));       
+    Serial.printf("[%i] POST %s:%i/api/v1/data\n", httpStatusCode, zazanetBackendIP.c_str(), MDNS.port(zazanetBackendIndex));
     http.end();
-    
+
     MDNS.end();
 
     ESP.deepSleep(INTERVAL_MICROSECONDS);
