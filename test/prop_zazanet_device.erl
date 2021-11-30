@@ -23,7 +23,6 @@ id(valid) ->
     oneof([pos_integer(),
            ?SUCHTHAT(V, {custom, binary()}, zazanet_device:validate(id, V))]).
 
-
 prop_valid_id_is_valid() ->
     ?FORALL(ID, id(valid), zazanet_device:validate(id, ID)).
 
@@ -48,10 +47,16 @@ param(invalid) ->
     oneof([?SUCHTHAT(V, any(), not zazanet_device:validate(param, V))]);
 param(valid) ->
     ?LET(UOM,
-         oneof([celsius,
+         oneof([undefined,
+                celsius,
                 percent,
                 ?SUCHTHAT(UOM, {custom, binary()}, zazanet_device:validate(uom, UOM))]),
          case UOM of
+             undefined ->
+                 #zazanet_device_param{id = param_id(valid),
+                                       val = oneof([number(), binary()]),
+                                       uom = undefined,
+                                       hardware = hardware(valid)};
              celsius ->
                  #zazanet_device_param{id = temperature,
                                        val = float(0.0, 50.0),

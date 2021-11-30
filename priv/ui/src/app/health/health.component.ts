@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
 import { Subject, of, timer } from 'rxjs';
 import { takeUntil, switchMap, catchError, tap } from 'rxjs/operators';
+import { environment } from 'src/environments/environment';
 
 interface IService {
   service: string
@@ -22,14 +23,14 @@ export class HealthComponent implements OnInit {
 
     private openedServices: string[] = [];
 
-    constructor(private http: HttpClient) {
+    constructor(private readonly http: HttpClient) {
     }
 
     ngOnInit(): void {
         timer(0, 1000)
             .pipe(
                 takeUntil(this.die$),
-                switchMap(_ => this.http.get<IService[]>('/api/health')),
+                switchMap(_ => this.http.get<IService[]>(`http://${environment.backend}:${environment.port}/api/health`)),
                 catchError((err, _) => {
                     console.error(err);
                     return of([]);

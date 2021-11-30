@@ -8,177 +8,33 @@
 
 -export([pack/2, unpack/2]).
 
-init(Req, Opts) ->
-    {ok,
-     try
-         case cowboy_req:parse_header(<<"accept">>, Req) of
-             undefined ->
-                 throw(406);
-             Accept ->
-                 case lists:any(fun({{<<"*">>, <<"*">>, _}, _, _}) ->
-                                        true;
-                                   ({{<<"application">>, <<"*">>, _}, _, _}) ->
-                                        true;
-                                   ({{<<"application">>, <<"json">>, _}, _, _}) ->
-                                        true;
-                                   (_) ->
-                                        false
-                                end,
-                                Accept) of
-                     true ->
-                         ok;
-                     _ ->
-                         throw(406)
-                 end
-         end,
-         case whereis(zazanet_devices_sup) of
-             undefined ->
-                 throw(503);
-             _ ->
-                 ok
-         end,
-         case {cowboy_req:method(Req), cowboy_req:binding(id, Req)} of
-             {<<"GET">>, undefined} ->
-                 case pg:get_members(zazanet, zazanet_device) of
-                     [] ->
-                         throw(204);
-                     PIDs ->
-                         Reply = lists:filtermap(fun(PID) ->
-                                                         case catch zazanet_device:get(PID) of
-                                                             {ok, Device = #zazanet_device{}} ->
-                                                                 {true, ?MODULE:pack(zazanet_device, Device)};
-                                                             _ ->
-                                                                 %% we might get here if device just died...
-                                                                 %% for example, because of the `TTL` and thus
-                                                                 %% the `PID` has became unknown
-                                                                 false
-                                                         end
-                                                 end,
-                                                 PIDs),
-                         throw({200, jiffy:encode(Reply)})
-                 end;
-             {<<"GET">>, ID} ->
-                 case pg:get_members(zazanet, {zazanet_device, ID}) of
-                     [] ->
-                         throw(404);
-                     [PID] ->
-                         case catch zazanet_device:get(PID) of
-                             {ok, Device = #zazanet_device{}} ->
-                                 throw({200, case ?MODULE:pack(zazanet_device, Device) of
-                                                 badarg ->
-                                                     logger:error(#{location => {?FILE, ?LINE},
-                                                                    event => {get, ID},
-                                                                    error => badarg,
-                                                                    msg => "Unable to pack data as JSON."}),
-                                                     throw(500);
-                                                 Reply ->
-                                                     jiffy:encode(Reply)
-                                             end});
-                             Error ->
-                                 logger:error(#{location => {?FILE, ?LINE},
-                                                event => {get, ID},
-                                                error => Error}),
-                                 throw(500)
-                         end
-                 end;
-             {<<"PUT">>, undefined} ->
-                 throw(405);
-             {<<"PUT">>, ID} ->
-                 case cowboy_req:body_length(Req) of
-                     0 ->
-                         throw(400);
-                     N
-                       when N > ?MAX_CONTENT_LENGTH ->
-                         throw(413);
-                     _ ->
-                         ok
-                 end,
-                 {ok, RawBody, Req1} = cowboy_req:read_body(Req, #{period => 5000,
-                                                                   length => ?MAX_CONTENT_LENGTH}),
-                 JSONBody = try jiffy:decode(RawBody, [return_maps])
-                            catch
-                                error:Error ->
-                                    logger:notice(#{location => {?FILE, ?LINE},
-                                                    event => {jiffy, decode},
-                                                    req => Req1,
-                                                    error => Error,
-                                                    msg => "Failed to deserialize a JSON. Probably it is malformed."}),
-                                    throw(400)
-                            end,
-                 case ?MODULE:unpack(state, JSONBody) of
-                     badarg ->
-                         throw(400);
-                     DeviceState ->
-                         %% here we distinct between params to be deleted
-                         %% and to be set/reset ones
-                         {ToSet, ToDel} = lists:partition(fun({del, _}) ->
-                                                                  false;
-                                                             (_) ->
-                                                                  true
-                                                          end,
-                                                          DeviceState),
-                         Device = #zazanet_device{id = ID, state = ToSet},
-                         TTL = maps:get(<<"ttl">>, JSONBody, undefined),
-                         case zazanet_devices_sup:start_child(Device, TTL) of
-                             {ok, _} ->
-                                 throw({201, #{"location" => "/api/v1/devices/" ++ integer_to_list(ID)}});
-                             {error, badarg} ->
-                                 throw(400);
-                             {error, already_started, PID} ->
-                                 ToDelKeys = lists:map(fun({del, Key}) -> Key end, ToDel),
-                                 case catch zazanet_device:del(PID, ToDelKeys) of
-                                     ok ->
-                                         ok;
-                                     {error, badarg} ->
-                                         throw(400);
-                                     ZazanetDeviceDelError ->
-                                         logger:error(#{location => {?FILE, ?LINE},
-                                                        error => ZazanetDeviceDelError,
-                                                        args => [PID, ToDelKeys]}),
-                                         throw(500)
-                                 end,
-                                 case catch zazanet_device:set(PID, Device) of
-                                     ok ->
-                                         throw(204);
-                                     {error, badarg} ->
-                                         throw(400);
-                                     ZazanetDeviceSetError ->
-                                         logger:error(#{location => {?FILE, ?LINE},
-                                                        error => ZazanetDeviceSetError,
-                                                        args => [PID, Device]}),
-                                         throw(500)
-                                 end;
-                             {error, ZazanetDevicesSupError} ->
-                                 logger:error(#{location => {?FILE, ?LINE},
-                                                error => ZazanetDevicesSupError}),
-                                 throw(500)
-                         end
-                 end;
-             {<<"DELETE">>, undefined} ->
-                 throw(405);
-             {<<"DELETE">>, ID} ->
-                 zazanet_devices_sup:terminate_child(ID),
-                 throw(204)
-         end
-     catch
-         throw:StatusCode
-           when is_integer(StatusCode) ->
-             cowboy_req:reply(StatusCode, Req);
-         throw:{StatusCode, JSON}
-           when is_integer(StatusCode)
-                andalso is_binary(JSON) ->
-             cowboy_req:reply(StatusCode,
-                              #{<<"content-type">> => <<"application/json">>},
-                              JSON,
-                              Req);
-         throw:{StatusCode, Headers}
-           when is_integer(StatusCode)
-                andalso is_map(Headers) ->
-             cowboy_req:reply(StatusCode,
-                              Headers,
-                              Req)
-     end,
-     Opts}.
+init(Req, Env) ->
+    Handler =
+        fun() ->
+                zazanet_http:accepts_json(Req),
+                case whereis(zazanet_devices_sup) of
+                    undefined ->
+                        zazanet_http:ret(Req, 503);
+                    _ ->
+                        ok
+                end,
+                case {cowboy_req:method(Req), cowboy_req:binding(id, Req)} of
+                    {<<"GET">>, undefined} ->
+                        get_all(Req);
+                    {<<"GET">>, ID} ->
+                        get_by_id(Req, ID);
+                    {<<"PUT">>, undefined} ->
+                        zazanet_http:ret(Req, 405);
+                    {<<"PUT">>, ID} ->
+                        put_by_id(Req, ID);
+                    {<<"DELETE">>, undefined} ->
+                        zazanet_http:ret(Req, 405);
+                    {<<"DELETE">>, ID} ->
+                        zazanet_devices_sup:terminate_child(ID),
+                        zazanet_http:ret(Req, 204)
+                end
+        end,
+    {ok, zazanet_http:handle(Handler), Env}.
 
 -define(LOG_UNPACK_ERROR(Data, Text),
         logger:debug(#{location => {?FILE, ?LINE},
@@ -187,115 +43,46 @@ init(Req, Opts) ->
                        data => Data})).
 
 unpack(state, #{<<"state">> := Params}) ->
-    unpack(params, Params);
+    ?MODULE:unpack(params, Params);
 unpack(state, #{}) ->
     [];
 unpack(params, Params)
   when is_map(Params) ->
-    unpack(params, maps:to_list(Params));
+    ?MODULE:unpack(params, maps:to_list(Params));
 unpack(params, []) ->
     [];
 unpack(params, [Param | Params]) ->
-    case unpack(param, Param) of
+    case ?MODULE:unpack(param, Param) of
         badarg ->
             badarg;
         UnpackedParam ->
-            [UnpackedParam] ++ unpack(params, Params)
+            [UnpackedParam] ++ ?MODULE:unpack(params, Params)
     end;
-unpack(param, {Key, null}) ->
-    {del, case Key of
-              <<"temperature">> ->
-                  temperature;
-              <<"humidity">> ->
-                  humidity;
-              <<"battery">> ->
-                  battery;
-              _ ->
-                  {custom, Key}
-          end};
-unpack(param, {<<"temperature">>, Val})
-  when not is_map(Val) ->
-    ?MODULE:unpack(param, {<<"temperature">>, #{<<"value">> => Val,
-                                                <<"unit_of_measurement">> => <<"celsius">>}});
-
-unpack(param, {<<"humidity">>, Val})
-  when not is_map(Val) ->
-    ?MODULE:unpack(param, {<<"humidity">>, #{<<"value">> => Val,
-                                             <<"unit_of_measurement">> => <<"percent">>}});
-unpack(param, {<<"battery">>, Val})
-  when not is_map(Val) ->
-    ?MODULE:unpack(param, {<<"battery">>, #{<<"value">> => Val,
-                                            <<"unit_of_measurement">> => <<"percent">>}});
-unpack(param, {<<"temperature">>, #{<<"value">> := Val,
-                                    <<"unit_of_measurement">> := <<"celsius">>,
-                                    <<"hardware">> := Hardware}}) ->
-    #zazanet_device_param{id = temperature,
-                          val = Val,
-                          uom = celsius,
-                          hardware = Hardware};
-unpack(param, {<<"temperature">>, #{<<"value">> := Val,
-                                    <<"unit_of_measurement">> := UOM,
-                                    <<"hardware">> := Hardware}}) ->
-    #zazanet_device_param{id = temperature,
-                          val = Val,
-                          uom = {custom, UOM},
-                          hardware = Hardware};
-unpack(param, {<<"temperature">>, Param = #{<<"value">> := Val}}) ->
-    unpack(param, {<<"temperature">>, #{<<"value">> => Val,
-                                        <<"unit_of_measurement">> => maps:get(<<"unit_of_measurement">>,
-                                                                              Param,
-                                                                              <<"celsius">>),
-                                        <<"hardware">> => maps:get(<<"hardware">>,
-                                                                   Param,
-                                                                   undefined)}});
-unpack(param, {<<"humidity">>, #{<<"value">> := Val,
-                                 <<"unit_of_measurement">> := UOM,
-                                 <<"hardware">> := Hardware}}) ->
-    #zazanet_device_param{id = humidity,
-                          val = Val,
-                          uom = case UOM of
-                                    <<"percent">> ->
-                                        percent;
-                                    _ ->
-                                        {custom, UOM}
-                                end,
-                          hardware = Hardware};
-unpack(param, {<<"humidity">>, Param = #{<<"value">> := Val}}) ->
-    unpack(param, {<<"humidity">>, #{<<"value">> => Val,
-                                     <<"unit_of_measurement">> => maps:get(<<"unit_of_measurement">>,
-                                                                           Param,
-                                                                           <<"percent">>),
-                                     <<"hardware">> => maps:get(<<"hardware">>,
-                                                                Param,
-                                                                undefined)}});
-unpack(param, {<<"battery">>, #{<<"value">> := Val,
-                                <<"unit_of_measurement">> := UOM,
-                                <<"hardware">> := Hardware}}) ->
-    #zazanet_device_param{id = battery,
-                          val = Val,
-                          uom = case UOM of
-                                    <<"percent">> ->
-                                        percent;
-                                    _ ->
-                                        {custom, UOM}
-                                end,
-                          hardware = Hardware};
-unpack(param, {<<"battery">>, Param = #{<<"value">> := Val}}) ->
-    unpack(param, {<<"battery">>, #{<<"value">> => Val,
-                                    <<"unit_of_measurement">> => maps:get(<<"unit_of_measurement">>,
-                                                                          Param,
-                                                                          <<"percent">>),
-                                    <<"hardware">> => maps:get(<<"hardware">>,
-                                                               Param,
-                                                               undefined)}});
-unpack(param, {ParamID, Param = #{<<"value">> := Val,
-                                  <<"unit_of_measurement">> := UOM}}) ->
-    #zazanet_device_param{id = {custom, ParamID},
-                          val = Val,
-                          uom = {custom, UOM},
-                          hardware = maps:get(<<"hardware">>,
-                                              Param,
-                                              undefined)};
+unpack(param, {ParamID, null}) ->
+    {del, ?MODULE:unpack(param_id, ParamID)};
+unpack(param_id, <<"temperature">>) ->
+    temperature;
+unpack(param_id, <<"humidity">>) ->
+    humidity;
+unpack(param_id, <<"battery">>) ->
+    battery;
+unpack(param_id, ParamID) ->
+    {custom, ParamID};
+unpack(uom, undefined) ->
+    undefined;
+unpack(uom, <<"celsius">>) ->
+    celsius;
+unpack(uom, <<"percent">>) ->
+    percent;
+unpack(uom, UOM) ->
+    {custom, UOM};
+unpack(param, {ParamID, Param = #{<<"value">> := Value}}) ->
+    #zazanet_device_param{id = ?MODULE:unpack(param_id, ParamID),
+                          val = Value,
+                          uom = ?MODULE:unpack(uom, maps:get(<<"unit_of_measurement">>, Param, undefined)),
+                          hardware = maps:get(<<"hardware">>, Param, undefined)};
+unpack(param, {ParamID, Param}) ->
+    ?MODULE:unpack(param, {ParamID, #{<<"value">> => Param}});
 unpack(param, Param) ->
     ?LOG_UNPACK_ERROR(Param, "Bad param.").
 
@@ -308,7 +95,7 @@ unpack(param, Param) ->
 pack(zazanet_device, Device = #zazanet_device{id = ID, state = State}) ->
     case zazanet_device:validate(zazanet_device, Device) of
         true ->
-            case pack(state, State) of
+            case ?MODULE:pack(state, State) of
                 badarg ->
                     badarg;
                 PackedState ->
@@ -343,8 +130,13 @@ pack(param, Param = #zazanet_device_param{val = Val,
                                           hardware = Hardware}) ->
     case zazanet_device:validate(param, Param) of
         true ->
-            Res = #{<<"value">> => pack_custom(Val),
-                    <<"unit_of_measurement">> => pack_custom(UOM)},
+            Res = if
+                      UOM =:= undefined ->
+                          #{<<"value">> => pack_custom(Val)};
+                      true ->
+                          #{<<"value">> => pack_custom(Val),
+                            <<"unit_of_measurement">> => pack_custom(UOM)}
+                  end,
             if
                 Hardware =:= undefined ->
                     Res;
@@ -361,3 +153,103 @@ pack_custom({custom, Val}) ->
     Val;
 pack_custom(Val) ->
     Val.
+
+get_all(Req) ->
+    case pg:get_members(zazanet, zazanet_device) of
+        [] ->
+            zazanet_http:ret(Req, 204);
+        PIDs ->
+            Reply = lists:filtermap(fun(PID) ->
+                                            case catch zazanet_device:get(PID) of
+                                                {ok, Device = #zazanet_device{}} ->
+                                                    {true, ?MODULE:pack(zazanet_device, Device)};
+                                                _ ->
+                                                    false
+                                            end
+                                    end,
+                                    PIDs),
+            zazanet_http:ret(Req, {200, jiffy:encode(Reply)})
+    end.
+
+get_by_id(Req, ID) ->
+    case pg:get_members(zazanet, {zazanet_device, ID}) of
+        [] ->
+            zazanet_http:ret(Req, 404);
+        [PID] ->
+            case catch zazanet_device:get(PID) of
+                {ok, Device = #zazanet_device{}} ->
+                    Response = {200, case ?MODULE:pack(zazanet_device, Device) of
+                                         badarg ->
+                                             logger:error(#{location => {?FILE, ?LINE},
+                                                            error => badarg,
+                                                            msg => "Unable to pack data as JSON."}),
+                                             zazanet_http:ret(Req, 500);
+                                         Reply ->
+                                             jiffy:encode(Reply)
+                                     end},
+                    zazanet_http:ret(Req, Response);
+                Error ->
+                    logger:error(#{location => {?FILE, ?LINE},
+                                   event => {get, ID},
+                                   error => Error}),
+                    zazanet_http:ret(Req, 500)
+            end
+    end.
+
+put_by_id(Req, ID) ->
+    zazanet_http:body_size_leq(Req, ?MAX_CONTENT_LENGTH),
+    {JSONBody, Req1} = zazanet_http:json(Req,
+                                         %% https://ninenines.eu/docs/en/cowboy/2.9/guide/req_body/#_reading_the_body
+                                         #{timeout => 5000,
+                                           period => 5000,
+                                           length => ?MAX_CONTENT_LENGTH}),
+    case ?MODULE:unpack(state, JSONBody) of
+        badarg ->
+            zazanet_http:ret(Req1, 400);
+        DeviceState ->
+            %% here we distinct between params to be deleted
+            %% and to be set/reset ones
+            {ToSet, ToDel} = lists:partition(fun({del, _}) ->
+                                                     false;
+                                                (_) ->
+                                                     true
+                                             end,
+                                             DeviceState),
+            Device = #zazanet_device{id = ID, state = ToSet},
+            TTL = maps:get(<<"ttl">>, JSONBody, undefined),
+            case zazanet_devices_sup:start_child(Device, TTL) of
+                {ok, _} ->
+                    Response = {201, [{"location", "/api/v1/devices/" ++ integer_to_list(ID)}]},
+                    zazanet_http:ret(Req1, Response);
+                {error, badarg} ->
+                    zazanet_http:ret(Req1, 400);
+                {error, already_started, PID} ->
+                    ToDelKeys = lists:map(fun({del, Key}) -> Key end, ToDel),
+                    case catch zazanet_device:del(PID, ToDelKeys) of
+                        ok ->
+                            ok;
+                        {error, badarg} ->
+                            zazanet_http:ret(Req1, 400);
+                        ZazanetDeviceDelError ->
+                            logger:error(#{location => {?FILE, ?LINE},
+                                           error => ZazanetDeviceDelError,
+                                           args => [PID, ToDelKeys]}),
+                            zazanet_http:ret(Req1, 500)
+                    end,
+                    case catch zazanet_device:set(PID, Device) of
+                        ok ->
+                            zazanet_http:ret(Req1, 204);
+                        {error, badarg} ->
+                            zazanet_http:ret(Req1, 400);
+                        ZazanetDeviceSetError ->
+                            logger:error(#{location => {?FILE, ?LINE},
+                                           error => ZazanetDeviceSetError,
+                                           args => [PID, Device]}),
+                            zazanet_http:ret(Req1, 500)
+                    end;
+                {error, ZazanetDevicesSupError} ->
+                    logger:error(#{location => {?FILE, ?LINE},
+                                   error => ZazanetDevicesSupError}),
+                    zazanet_http:ret(Req1, 500)
+            end
+    end.

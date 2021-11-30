@@ -22,7 +22,6 @@ init([]) ->
          start => {zazanet_device, start_link, []},
          restart => transient,
          shutdown => 1000,
-         type => worker,
          modules => [zazanet_device]}]}}.
 
 start_child(Device) ->
@@ -56,5 +55,5 @@ terminate_child(ID) ->
         [] ->
             {error, not_found};
         [PID] ->
-            terminate_child(PID)
+            ?MODULE:terminate_child(PID)
     end.
