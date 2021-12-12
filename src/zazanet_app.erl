@@ -18,6 +18,7 @@ start(_StartType, Props) ->
         [{'_',
           [{"/api/health", zazanet_http_health_h, []},
            {"/api/v1/devices/[:id]", [{id, [int]}], zazanet_http_devices_h, []},
+           {"/api/v1/groups/[:id]", [], zazanet_http_groups_h, []},
            {"/", cowboy_static, {priv_file, zazanet, "ui/dist/ui/index.html"}},
            {"/[...]", cowboy_static, {priv_dir, zazanet, "ui/dist/ui"}}]}],
     {ok, _} =

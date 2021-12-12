@@ -2,14 +2,32 @@
 
 -behaviour(gen_server).
 
+-include("zazanet_logger.hrl").
 -include("zazanet_device.hrl").
+
+-export_type([maybe/1, param_id/0, temperature_unit/0, humidity_unit/0, battery_unit/0,
+              unit_of_measurement/0, val/0, hardware/0, param/0, id/0, state/0, device/0, ttl/0]).
+
+-type maybe(T) :: undefined | T.
+-type param_id() :: temperature | humidity | battery | {custom, nonempty_binary()}.
+-type temperature_unit() :: celsius.
+-type humidity_unit() :: percent.
+-type battery_unit() :: percent.
+-type unit_of_measurement() ::
+    temperature_unit() | humidity_unit() | battery_unit() | {custom, nonempty_binary()}.
+-type val() :: number() | nonempty_binary().
+-type hardware() :: nonempty_binary().
+-type param() :: #zazanet_device_param{}.
+-type id() :: pos_integer().
+-type state() :: [param()].
+-type device() :: #zazanet_device{}.
+-type ttl() :: pos_integer().
 
 -export([start_link/1, stop/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 -export([validate/2, merge_state/2, get/1, get/2, set/2, del/2]).
 
--record(state,
-        {zazanet_device, pgs, health, yellow_ttl, red_ttl, stop_ttl, timer_ref}).
+-record(state, {zazanet_device, pgs, health, yellow_ttl, red_ttl, stop_ttl, timer_ref}).
 
 start_link(Props) ->
     gen_server:start_link(?MODULE, Props, []).
@@ -25,38 +43,6 @@ init(Props) ->
         Device = #zazanet_device{} ->
             do_init(Device, proplists:get_value(ttl, Props));
         _ ->
-            {stop, badarg}
-    end.
-
-do_init(Device, undefined) ->
-    FiveMinutes = 1000 * 60 * 5,
-    do_init(Device, FiveMinutes);
-do_init(Device = #zazanet_device{id = ID, state = DeviceState}, TTL) ->
-    case ?MODULE:validate(zazanet_device, Device) andalso ?MODULE:validate(ttl, TTL) of
-        true ->
-            YellowTTL = 2 * TTL,
-            case timer:send_after(YellowTTL, {health, yellow}) of
-                {ok, TimerRef} ->
-                    PGs = [zazanet_device, {zazanet_device, ID}],
-                    ok = pg(join, PGs),
-                    %% implementation notes: list of params always kept sorted for the efficiency sake;
-                    %% see the `merge_state/2`
-                    {ok,
-                     #state{zazanet_device =
-                                Device#zazanet_device{state =
-                                                          lists:keysort(#zazanet_device_param.id,
-                                                                        DeviceState)},
-                            pgs = PGs,
-                            health = green,
-                            yellow_ttl = YellowTTL,
-                            red_ttl = 3 * TTL,
-                            stop_ttl = 10 * TTL,
-                            timer_ref = TimerRef}};
-                Error ->
-                    logger:notice(#{location => {?FILE, ?LINE}, error => Error}),
-                    {stop, badstate}
-            end;
-        false ->
             {stop, badarg}
     end.
 
@@ -196,12 +182,6 @@ terminate(_Reason, #state{pgs = PGroupIDs, timer_ref = TimerRef}) ->
     ok = pg(leave, PGroupIDs),
     ok.
 
--define(LOG_VALIDATION_ERROR(Data, Text),
-        logger:debug(#{location => {?FILE, ?LINE},
-                       event => validation,
-                       error => Text,
-                       data => Data})).
-
 validate(zazanet_device, #zazanet_device{id = ID, state = State}) ->
     ?MODULE:validate(id, ID) andalso ?MODULE:validate(state, State);
 validate(zazanet_device, Device) ->
@@ -338,6 +318,38 @@ del(Ref, Params) ->
     gen_server:call(Ref, {del, Params}).
 
                                                 % PRIV
+
+do_init(Device, undefined) ->
+    FiveMinutes = 1000 * 60 * 5,
+    do_init(Device, FiveMinutes);
+do_init(Device = #zazanet_device{id = ID, state = DeviceState}, TTL) ->
+    case ?MODULE:validate(zazanet_device, Device) andalso ?MODULE:validate(ttl, TTL) of
+        true ->
+            YellowTTL = 2 * TTL,
+            case timer:send_after(YellowTTL, {health, yellow}) of
+                {ok, TimerRef} ->
+                    PGs = [zazanet_device, {zazanet_device, ID}],
+                    ok = pg(join, PGs),
+                    %% implementation notes: list of params always kept sorted for the efficiency sake;
+                    %% see the `merge_state/2`
+                    {ok,
+                     #state{zazanet_device =
+                                Device#zazanet_device{state =
+                                                          lists:keysort(#zazanet_device_param.id,
+                                                                        DeviceState)},
+                            pgs = PGs,
+                            health = green,
+                            yellow_ttl = YellowTTL,
+                            red_ttl = 3 * TTL,
+                            stop_ttl = 10 * TTL,
+                            timer_ref = TimerRef}};
+                Error ->
+                    logger:notice(#{location => {?FILE, ?LINE}, error => Error}),
+                    {stop, badstate}
+            end;
+        false ->
+            {stop, badarg}
+    end.
 
 pg(join, PGs) ->
     lists:foreach(fun(PGroupID) -> ok = pg:join(zazanet, PGroupID, self()) end, PGs),
