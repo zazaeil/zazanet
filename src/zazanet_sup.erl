@@ -27,4 +27,7 @@ init(Args) ->
            #{id => zazanet_devices_sup,
              start => {zazanet_devices_sup, start_link, []},
              restart => permanent,
-             type => supervisor}]}}.
+             type => supervisor},
+           #{id => zazanet_device_events_manager,
+             start => {gen_event, start_link, [{local, zazanet_device_events_manager}, [log]]},
+             modules => [zazanet_device]}]}}.

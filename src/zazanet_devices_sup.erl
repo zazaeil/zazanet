@@ -5,9 +5,7 @@
 -include("zazanet_device.hrl").
 
 -export([start_link/0]).
-
 -export([init/1]).
-
 -export([start_child/1, start_child/2, terminate_child/1]).
 
 start_link() ->
@@ -30,8 +28,7 @@ start_child(Device) ->
 start_child(Device = #zazanet_device{id = ID}, TTL) ->
     case pg:get_members(zazanet, {zazanet_device, ID}) of
         [] ->
-            case supervisor:start_child(?MODULE, [[{zazanet_device, Device},
-                                                   {ttl, TTL}]]) of
+            case supervisor:start_child(?MODULE, [[{zazanet_device, Device}, {ttl, TTL}]]) of
                 {ok, undefined} ->
                     {error, undefined};
                 {ok, PID} ->
@@ -47,8 +44,7 @@ start_child(Device = #zazanet_device{id = ID}, TTL) ->
 start_child(_, _) ->
     {error, badarg}.
 
-terminate_child(PID)
-  when is_pid(PID) ->
+terminate_child(PID) when is_pid(PID) ->
     supervisor:terminate_child(?MODULE, PID);
 terminate_child(ID) ->
     case pg:get_members(zazanet, {zazanet_device, ID}) of

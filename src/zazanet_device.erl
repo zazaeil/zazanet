@@ -24,7 +24,8 @@
 -type ttl() :: pos_integer().
 
 -export([start_link/1, stop/1]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([init/1, handle_continue/2, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2]).
 -export([validate/2, merge_state/2, get/1, get/2, set/2, del/2]).
 
 -record(state, {zazanet_device, pgs, health, yellow_ttl, red_ttl, stop_ttl, timer_ref}).
@@ -45,6 +46,12 @@ init(Props) ->
         _ ->
             {stop, badarg}
     end.
+
+handle_continue(ok, State = #state{zazanet_device = Device = #zazanet_device{id = ID}}) ->
+    PGs = [zazanet_device, {zazanet_device, ID}],
+    ok = pg(join, PGs),
+    ok = notify({life_cycle, stared, Device}),
+    {noreply, State#state{pgs = PGs}}.
 
 handle_call({get, []}, _From, State = #state{zazanet_device = Device}) ->
     {reply, {ok, Device}, State};
@@ -94,11 +101,11 @@ handle_call({set, NewDeviceState},
                                                    msg => "Failed to merge old and new states."}),
                                     {stop, badarg, State};
                                 MergedDeviceState ->
+                                    NewDevice = Device#zazanet_device{state = MergedDeviceState},
+                                    notify({change_stream, updated, NewDevice}),
                                     {reply,
                                      ok,
-                                     State#state{zazanet_device =
-                                                     Device#zazanet_device{state =
-                                                                               MergedDeviceState},
+                                     State#state{zazanet_device = NewDevice,
                                                  health = green,
                                                  timer_ref = NewTimerRef}}
                             end;
@@ -124,7 +131,9 @@ handle_call({del, Params},
                             end,
                             DeviceState,
                             Params),
-            {reply, ok, State#state{zazanet_device = Device#zazanet_device{state = NewParams}}};
+            NewDevice = Device#zazanet_device{state = NewParams},
+            notify({change_stream, updated, NewDevice}),
+            {reply, ok, State#state{zazanet_device = NewDevice}};
         false ->
             {reply, {error, badarg}, State}
     end;
@@ -175,12 +184,23 @@ handle_info(Event, State) ->
                     action => ignore}),
     {noreply, State}.
 
-terminate(_Reason, #state{timer_ref = undefined}) ->
-    ok;
-terminate(_Reason, #state{pgs = PGroupIDs, timer_ref = TimerRef}) ->
-    timer:cancel(TimerRef),
+terminate(_Reason,
+          #state{zazanet_device = Device,
+                 timer_ref = undefined,
+                 pgs = PGroupIDs}) ->
     ok = pg(leave, PGroupIDs),
-    ok.
+    notify({life_cycle, stopped, Device}),
+    ok;
+terminate(Reason, State = #state{timer_ref = TimerRef}) ->
+    case timer:cancel(TimerRef) of
+        {ok, cancel} ->
+            ok;
+        {error, Error} ->
+            logger:error(#{location => {?FILE, ?LINE},
+                           msg => "Failed to terminate the zazanet device.",
+                           error => Error})
+    end,
+    ?MODULE:terminate(Reason, State#state{timer_ref = undefined}).
 
 validate(zazanet_device, #zazanet_device{id = ID, state = State}) ->
     ?MODULE:validate(id, ID) andalso ?MODULE:validate(state, State);
@@ -322,27 +342,26 @@ del(Ref, Params) ->
 do_init(Device, undefined) ->
     FiveMinutes = 1000 * 60 * 5,
     do_init(Device, FiveMinutes);
-do_init(Device = #zazanet_device{id = ID, state = DeviceState}, TTL) ->
+do_init(Device = #zazanet_device{state = DeviceState}, TTL) ->
     case ?MODULE:validate(zazanet_device, Device) andalso ?MODULE:validate(ttl, TTL) of
         true ->
             YellowTTL = 2 * TTL,
             case timer:send_after(YellowTTL, {health, yellow}) of
                 {ok, TimerRef} ->
-                    PGs = [zazanet_device, {zazanet_device, ID}],
-                    ok = pg(join, PGs),
-                    %% implementation notes: list of params always kept sorted for the efficiency sake;
-                    %% see the `merge_state/2`
                     {ok,
                      #state{zazanet_device =
                                 Device#zazanet_device{state =
+                                                          %% implementation notes: list of params always kept sorted
+                                                          %% for the efficiency sake; see the `merge_state/2`
                                                           lists:keysort(#zazanet_device_param.id,
                                                                         DeviceState)},
-                            pgs = PGs,
+                            pgs = [],
                             health = green,
                             yellow_ttl = YellowTTL,
                             red_ttl = 3 * TTL,
                             stop_ttl = 10 * TTL,
-                            timer_ref = TimerRef}};
+                            timer_ref = TimerRef},
+                     {continue, ok}};
                 Error ->
                     logger:notice(#{location => {?FILE, ?LINE}, error => Error}),
                     {stop, badstate}
@@ -357,3 +376,12 @@ pg(join, PGs) ->
 pg(leave, PGs) ->
     lists:foreach(fun(PGroupID) -> ok = pg:leave(zazanet, PGroupID, self()) end, PGs),
     ok.
+
+notify(Event) ->
+    %% proptests would fail otherwise
+    case whereis(zazanet_device_events_manager) of
+        undefined ->
+            ok;
+        _ ->
+            gen_event:notify(zazanet_device_events_manager, Event)
+    end.
