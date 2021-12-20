@@ -68,7 +68,17 @@ handle_call({get, Opts},
                               (state) ->
                                   DeviceState;
                               (health) ->
-                                  Health
+                                  Health;
+                              ({param, ParamID}) ->
+                                  case lists:keyfind(param_id(ParamID),
+                                                     #zazanet_device_param.id,
+                                                     DeviceState)
+                                  of
+                                      false ->
+                                          undefined;
+                                      #zazanet_device_param{val = Val} ->
+                                          Val
+                                  end
                           end,
                           Opts),
             {reply, {ok, Reply}, State};
@@ -312,7 +322,12 @@ validate({get, opts}, [id | Opts]) ->
 validate({get, opts}, [state | Opts]) ->
     ?MODULE:validate({get, opts}, Opts);
 validate({get, opts}, [health | Opts]) ->
-    ?MODULE:validate({get, opts}, Opts).
+    ?MODULE:validate({get, opts}, Opts);
+validate({get, opts}, [{param, ParamID} | Opts]) ->
+    ?MODULE:validate(param_id, param_id(ParamID)) andalso ?MODULE:validate({get, opts}, Opts);
+validate({get, opts}, [Opt]) ->
+    ?LOG_VALIDATION_ERROR(Opt, "Bad opt."),
+    false.
 
 merge_state(Old, New) ->
     AreValid = ?MODULE:validate(state, Old) andalso ?MODULE:validate(state, New),
@@ -385,3 +400,8 @@ notify(Event) ->
         _ ->
             gen_event:notify(zazanet_device_events_manager, Event)
     end.
+
+param_id(Bin) when is_binary(Bin) ->
+    {custom, Bin};
+param_id(ParamID) ->
+    ParamID.

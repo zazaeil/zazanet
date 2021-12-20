@@ -12,18 +12,10 @@ end_per_suite(_) ->
     ok.
 
 groups() ->
-    [{e2e, [sequence], with_prefix("e2e_")}].
-
-starts_with(Atom, Prefix) ->
-    Prefix =:= string:slice(atom_to_list(Atom), 0, string:length(Prefix)).
-
-with_prefix(Prefix) ->
-    [MethodName
-     || {MethodName, _} <- proplists:get_value(exports, ?MODULE:module_info()),
-        starts_with(MethodName, Prefix)].
+    [{e2e, [sequence], zazanet_ct:with_prefix(?MODULE, "e2e_")}].
 
 init_per_testcase(TestName, Config) ->
-    case starts_with(TestName, "e2e_") of
+    case zazanet_ct:atom_starts_with(TestName, "e2e_") of
         true ->
             ok = application:set_env(zazanet, port, proplists:get_value(port, Config)),
             ok = application:set_env(zazanet, vsn, "e2e"),
@@ -34,7 +26,7 @@ init_per_testcase(TestName, Config) ->
     Config.
 
 end_per_testcase(TestName, _) ->
-    case starts_with(TestName, "e2e_") of
+    case zazanet_ct:atom_starts_with(TestName, "e2e_") of
         true ->
             ok = application:stop(zazanet);
         _ ->
