@@ -26,7 +26,7 @@ start_child(Service =
                         {zazanet_zeroconf_service, {Name, ZeroconfService, Protocol}})
     of
         [] ->
-            case supervisor:start_child(?MODULE, [[{zazanet_zeroconf_service, Service}]]) of
+            case supervisor:start_child(?MODULE, [Service]) of
                 {ok, undefined} ->
                     {error, undefined};
                 {ok, PID} ->

@@ -1,55 +1,55 @@
+%%% CAUTION: AREA UNDER CONSTRUCTION.
+%%% Microcontroller find the Zazanet backend via mDSN (of which Zeroconf is a variety).
+%%% @link https://en.wikipedia.org/wiki/Zero-configuration_networking
+%%% However, it isn't that easy to find a reliable Erlang implementation in the Open Source.
+%%% Now it works like that: there is a versioned precompiled binary at the `/priv/bin' named
+%%% `zeroconf-${git_hash}'. It is a simple CLI that is invoked as via the `open_port' call.
+%%% It does what is expected to be done, however it might be a bad idea to keep this approach
+%%% for the both mid- and long-term perspectives.
+%%% At the moment current module acts as a binding to that magic binary that "just does it!".
+
 -module(zazanet_zeroconf).
 
 -behaviour(gen_server).
 
 -include("zazanet_zeroconf_service.hrl").
--include("zazanet_health_check.hrl").
 
 -export([start_link/1]).
-
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
--export([health/1, uid/1]).
+-export([health/1]).
 
--type pgroups() ::
-    zazanet_zeroconf_service | {zazanet_zeroconf_service, {string(), string(), string()}}.
+-type name() :: nonempty_binary().
+-type txt_record() :: {Key :: nonempty_binary(), Val :: nonempty_binary()}.
+-type service() :: http | nonempty_binary().
+-type protocol() :: udp | tcp.
+-type domain() :: local | nonempty_binary().
+-type type() :: {Service :: service(), Protocol :: protocol()}.
+-type zeroconf_service_id() :: {name(), service(), protocol()}.
 
--record(state,
-        {service :: #zazanet_zeroconf_service{}, port :: port(), pgs :: [pgroups()]}).
+-export_type([name/0, txt_record/0, domain/0, service/0, protocol/0, type/0,
+              zeroconf_service_id/0]).
 
-start_link(Props) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Props, []).
+-record(state, {service :: #zazanet_zeroconf_service{}, port :: port()}).
 
-init(Props) ->
-    case proplists:get_value(zazanet_zeroconf_service, Props) of
-        undefined ->
+start_link(Service) ->
+    gen_server:start_link(?MODULE, Service, []).
+
+init(Service) ->
+    %% TODO: lacks proper validation
+    case open_zeroconf_port(Service) of
+        badarg ->
             {stop, badarg};
-        Service ->
-            case open_zeroconf_port(Service) of
-                badarg ->
-                    {stop, badarg};
-                {ok, Port} ->
-                    {ok, UID} = ?MODULE:uid(Service),
-                    PGs = [zazanet_zeroconf_service, {zazanet_zeroconf_service, UID}],
-                    pg(join, PGs),
-                    {ok,
-                     #state{service = Service,
-                            port = Port,
-                            pgs = PGs}}
-            end
+        {ok, Port} ->
+            pg(join, Service),
+            {ok, #state{service = Service, port = Port}}
     end.
 
 handle_call(health, _From, State = #state{service = Service}) ->
-    %% at the moment health checks are not implemented; it would require
-    %% an inter-process communicaiton (IPC); that's for the future improvements
-    {ok, {Name, ZeroconfService, Protocol}} = ?MODULE:uid(Service),
-    ServiceUID =
-        iolist_to_binary([<<"zeroconf:">>,
-                          Name,
-                          <<".">>,
-                          service_to_binary(ZeroconfService),
-                          <<".">>,
-                          protocol_to_binary(Protocol)]),
-    {reply, {ok, #zazanet_health_check{service = ServiceUID, health = green}}, State}.
+    %% At the moment health checks are not implemented; it would require
+    %% an inter-process communicaiton (IPC)... so that's for the future improvements.
+    {Name, ZeroconfService, Protocol} = id(Service),
+    ID = iolist_to_binary([<<"zeroconf_service">>, <<".">>, Name]),
+    {reply, {ID, green, #{service => ZeroconfService, protocol => Protocol}}, State}.
 
 handle_cast(_, State) ->
     {stop, not_implemented, State}.
@@ -59,32 +59,31 @@ handle_info({'EXIT', Port, _}, State = #state{port = Port}) ->
 handle_info(_Info, State) ->
     {stop, not_implemented, State}.
 
-terminate(_Reason, #state{port = Port, pgs = PGGroupIDs}) ->
+terminate(_Reason, #state{service = Service, port = Port}) ->
     port_close(Port),
-    pg(leave, PGGroupIDs),
+    pg(leave, Service),
     ok.
 
 health(PID) ->
     gen_server:call(PID, health).
 
-uid(#zazanet_zeroconf_service{name = Name, type = {Service, Protocol}}) ->
-    {ok, {Name, Service, Protocol}};
-uid(_) ->
-    badarg.
-
                                                 % PRIV
+
+-spec id(#zazanet_zeroconf_service{}) -> zeroconf_service_id().
+id(#zazanet_zeroconf_service{name = Name, type = {Service, Protocol}}) ->
+    {Name, Service, Protocol}.
 
 open_zeroconf_port(#zazanet_zeroconf_service{name = Name,
                                              type = {Service, Protocol},
                                              domain = Domain,
                                              port = Port,
                                              txts = TXTs}) ->
-    %% that's probably wrong or too limited...
-    %% the problem here is that multiple IPs are pusblished (per each network interface),
+    %% That's probably wrong or too limited...
+    %% The problem here is that multiple IPs are pusblished (per each network interface),
     %% however open source mDSN implementations for microcontrollers like ESP32, ESP8266
     %% do not support multiple IPs (at least by the end of 2021); so we have to cut them off somewhere...
-    %% the filter below, `[up, broadcast, running, multicast]` seems to work OK on the Linux machines I've tested it
-    %% even if Docker is installed (and thus its `docker0` interface exists)
+    %% The filter below, `[up, broadcast, running, multicast]', seems to work OK on the Linux machines: tested it
+    %% with Docker installed (and thus the `docker0' interface exists). Have no idea if it works on other OSes.
     {ok, IfaceNames} =
         net:getifaddrs(#{family => inet, flags => [up, broadcast, running, multicast]}),
     WantedIPv4 = ipv4(),
@@ -117,11 +116,13 @@ ipv4() ->
     hd([Addr
         || {_, Opts} <- Addrs, {addr, Addr} <- Opts, size(Addr) == 4, Addr =/= {127, 0, 0, 1}]).
 
-pg(join, PGs) ->
-    lists:foreach(fun(PGroupID) -> ok = pg:join(zazanet, PGroupID, self()) end, PGs),
+pg(join, Service) ->
+    pg:join(zazanet, zazanet_zeroconf_services, self()),
+    pg:join(zazanet, {zazanet_zeroconf_service, id(Service)}, self()),
     ok;
-pg(leave, PGs) ->
-    lists:foreach(fun(PGroupID) -> ok = pg:leave(zazanet, PGroupID, self()) end, PGs),
+pg(leave, Service) ->
+    pg:leave(zazanet, {zazanet_zeroconf_service, id(Service)}, self()),
+    pg:leave(zazanet, zazanet_zeroconf_services, self()),
     ok.
 
 service_to_binary(http) ->

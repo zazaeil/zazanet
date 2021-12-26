@@ -1,12 +1,13 @@
 -module(zazanet_http).
 
--export([handle/1, ret/2, accepts_json/1, body_size_leq/2, json/2]).
+-define(MAX_CONTENT_LENGTH, 2048).
+
+-export([handle/1, ret/2, accepts_json/1, body_size_leq/2, get_json/1]).
 
 handle(F) ->
     try
         F(),
-        logger:error(#{location => {?FILE, ?LINE},
-                       msg => "Bad handler."}),
+        logger:error(#{location => {?FILE, ?LINE}, msg => "Bad handler."}),
         throw(500)
     catch
         {Req, StatusCode} when is_integer(StatusCode) ->
@@ -55,10 +56,14 @@ accepts_json(Req) ->
             end
     end.
 
--spec json(Req :: cowboy_req:req(), Opts :: cowboy_req:read_body_opts()) ->
-              {map(), cowboy_req:req()} | no_return().
-json(Req, Opts) ->
-    {ok, RawBody, Req1} = cowboy_req:read_body(Req, Opts),
+-spec get_json(Req :: cowboy_req:req()) -> {map(), cowboy_req:req()} | no_return().
+get_json(Req) ->
+    {ok, RawBody, Req1} =
+        cowboy_req:read_body(Req,
+                             %% https://ninenines.eu/docs/en/cowboy/2.9/guide/req_body/#_reading_the_body
+                             #{timeout => 5000,
+                               period => 5000,
+                               length => ?MAX_CONTENT_LENGTH}),
     JSONBody =
         try
             jiffy:decode(RawBody, [return_maps])

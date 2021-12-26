@@ -7,9 +7,10 @@
 -export([start/2, stop/1]).
 
 start(_StartType, Props) ->
-    %% `zazanet_cfg` is required to read default data lile the HTTP port to run,
+    %% The `zazanet_cfg' is required to read default data like an TCP port to run on,
     %% app version and probably other params as well; so first the root supervisor
-    %% is started and later it's PID is returned to the caller
+    %% is started and later it's PID is returned to the caller of this function.
+    %% Make sure to gurantee that the `zazanet_cfg' is there before it's dependencies.
     Res = {ok, _} =
               zazanet_sup:start_link(
                   proplists:get_value(cfg, Props, [])),
@@ -17,32 +18,31 @@ start(_StartType, Props) ->
     Routes =
         [{'_',
           [{"/api/health", zazanet_http_health_h, []},
-           {"/api/v1/devices/[:id]", [{id, [int]}], zazanet_http_devices_h, []},
-           {"/api/v1/groups/[:id]", [], zazanet_http_groups_h, []},
+           {"/api/v1/timeline", zazanet_http_timeline_h, []},
+           {"/api/v1/controllers/[:id]", zazanet_http_controllers_h, []},
            {"/", cowboy_static, {priv_file, zazanet, "ui/dist/ui/index.html"}},
            {"/[...]", cowboy_static, {priv_dir, zazanet, "ui/dist/ui"}}]}],
     {ok, _} =
         cowboy:start_clear(zazanet_http,
                            [{port, Port}],
                            #{env => #{dispatch => cowboy_router:compile(Routes)}}),
-    %% now HTTP server is there and it can publish itself via the Zeroconf protocol
+    %% Now HTTP server is there and it can publish itself via the Zeroconf protocol.
     {ok, VSN} = zazanet_cfg:get(vsn),
     ZazanetBackend =
-        #zazanet_zeroconf_service{name =
-                                      <<"zazanet-backend">>, % an important constant, you can't change it
+        #zazanet_zeroconf_service{name = <<"zazanet_backend">>,
                                   type = {http, tcp},
                                   domain = local,
                                   port = Port,
                                   txts =
-                                      [{<<"zazanet-service">>, <<"backend">>},
-                                       {<<"zazanet-service-version">>, VSN}]},
+                                      [{<<"zazanet_service">>, <<"backend">>},
+                                       {<<"zazanet_service_version">>, VSN}]},
     case zazanet_zeroconf_sup:start_child(ZazanetBackend) of
         {ok, _} ->
             Res;
         {error, Error} ->
             logger:error(#{location => {?FILE, ?LINE},
                            error => Error,
-                           msg => "Failed to publish via the Zeroconf protocol."}),
+                           msg => "Failed to self-publish via the Zeroconf protocol."}),
             {error, Error}
     end.
 
