@@ -1,3 +1,9 @@
+%% @doc
+%% Stores immutable <i>facts</i> with {@link unix_time_milliseconds()} as a primary key
+%% and provides simple yet efficient API to query them later: {@link get/3}.
+%% Each {@link fact()} has a {@link unix_time_milliseconds(). timestamp} and some {@link what(). secondary key} identifying it. {@type data()} is associated content.
+%% Both TTL-driven auto-cleanups and complete immutability are supported. Moreover, these modes could be changed
+%% without restarting an instance: see {@link ttl/1}.
 -module(zazanet_timeline).
 
 -behaviour(gen_server).
@@ -6,32 +12,38 @@
 
 -export([start/1, start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
--export([ttl/1, cleanup/0, set/3, get/1, get/3, to_list/0]).
+-export([ttl/1, cleanup/0, set/3, get/1, get/3, to_list/1]).
 
 -type unix_time_milliseconds() :: pos_integer().
--type fact() :: {When :: unix_time_milliseconds(), What :: term(), Data :: term()}.
+-type what() :: term().
+-type data() :: term().
+-type fact() :: {When :: unix_time_milliseconds(), What :: what(), Data :: data()}.
 -type start_props() :: {ttl, infinity | unix_time_milliseconds()}.
 
--export_type([unix_time_milliseconds/0, fact/0, start_props/0]).
+-export_type([unix_time_milliseconds/0, what/0, data/0, fact/0, start_props/0]).
 
 -record(state, {ttl :: timeout(), ets_tid :: ets:name(), timer_ref :: timer:ref()}).
--record(fact, {'when' :: pos_integer(), what :: term(), data :: term()}).
+-record(fact, {'when' :: pos_integer(), what :: what(), data :: data()}).
 
-%% @doc Starts the timeline as a `gen_server' named `zazanet_timeline'.
+%% @doc
+%% Starts the instance named `zazanet_timeline' locally.
 %% Props:
+%% <br />
 %% - `{ttl, TTL}' specifies the amout of time each fact of the timeline considered alive. Autocleanup interval
 %%   is going to be equal to the `TTL'. If you don't want that feature, `{ttl, infinity}' (which is also the default)
-%%   will disable it. You can always set `TTL' with a call to the @see zazanet_timeline:ttl(TTL).
+%%   will disable it. You can always set `TTL' with a call to the {@link zazanet_timeline:ttl/1}.
 -spec start(Props :: [start_props()]) ->
                {ok, pid()} | ignore | {error, {already_started, pid()} | term()}.
 start(Props) ->
     gen_server:start({local, ?MODULE}, ?MODULE, Props, []).
 
-%% @doc Stops the timeline.
+%% @doc
+%% Stops the instance.
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Exactly like the @see zazanet_timeline:start(Props), but `start_link' version.
+%% @doc
+%% Exactly like the {@link zazanet_timeline:start/1}, but a `start_link' version of it.
 start_link(Props) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Props, []).
 
@@ -199,49 +211,55 @@ terminate(_Reason, #state{timer_ref = Ref}) ->
     end,
     ok.
 
-%% @doc Equivalent to the `get(infinity, infinity, What)'.
+%% @doc
+%% @equiv zazanet_timeline:get(infinity, infinity, What)
 -spec get(What :: term()) -> [fact()].
 get(What) ->
     ?MODULE:get(infinity, infinity, What).
 
-%% @doc Gets all the `What'-typed facts from the timeline at once (i.e. no continuations or pagination).
-%% Both `From = infinity' and `To = infinity' would give you an entire timeline (filtered to `What'-typed facts only, of course).
-%% If `From > To', the `badarg' is returned.
-%% Strict equality is used to match `What' with facts in the timeline, so it's like the `when What =:= ...' guard.
+%% @doc
+%% Gets all the {@link what()}-typed facts from the timeline at once (i.e. no continuations or pagination).
+%% Both `From = infinity' and `To = infinity' would give you an entire timeline (filtered to {@link what()}-typed facts only, of course).
+%% If `From > To', `badarg' is returned.
+%% Strict equality is used to match `What' with facts found in the timeline, so it acts like a `when What =:= ...' guard.
 -spec get(From :: infinity | unix_time_milliseconds(),
           To :: infinity | unix_time_milliseconds(),
-          What :: term()) ->
+          What :: what()) ->
              [fact()].
 get(From, To, _) when is_integer(From), is_integer(To), To < From ->
     badarg;
 get(From, To, What) ->
     gen_server:call(?MODULE, {get, From, To, What}).
 
-to_list() ->
-    gen_server:call(?MODULE, to_list).
+%% @doc
+%% Returns everything from the instance as a list.
+%% Of course, that might be quite slow for a huge timeline.
+-spec to_list(Timeout :: timeout()) -> [fact()].
+to_list(Timeout) ->
+    gen_server:call(?MODULE, to_list, Timeout).
 
-%% @doc Asynchronously registers a given fact in the timeline.
+%% @doc
+%% Asynchronously registers a given fact in the timeline.
 %% Note that it may not become immediately available because of async nature of the process.
-%% `When' is a primary key, however multiple facts may share the same timestamp (i.e. they could occur at the same moment).
-%% `What' is a term that specifies a fact kind and should act as an additional (non-primary) key for later `get's.
--spec set(When :: unix_time_milliseconds(), What :: term(), Data :: term()) -> ok.
+-spec set(When :: unix_time_milliseconds(), What :: what(), Data :: data()) -> ok.
 set(When, What, Data) ->
     gen_server:cast(?MODULE, {set, When, What, Data}).
 
-%% @doc Sets the time-to-live for the timeline facts.
+%% @doc
+%% Sets the time-to-live for the timeline facts.
 %% It would automatically ensure periodic cleanups with period equal to a specified `TTL' value.
 %% `TTL' should be given in milliseconds.
-%% `TTL = infinity' would switch off autocleanup and the timeline would act as an readonly log.
--spec ttl(TTL :: timeout()) -> ok | {error, Reason :: badarg | term()}.
+%% `TTL = infinity' would switch off autocleanup and the timeline would act as an readonly grow-only log.
+-spec ttl(TTL :: infinity | timeout()) -> ok | {error, Reason :: badarg | term()}.
 ttl(TTL) ->
     gen_server:call(?MODULE, {ttl, TTL}).
 
-%% @doc Runs non-scheduled instant cleanup.
-%% The timeline has `ttl` and it does periodic cleanups automatically.
+%% @doc
+%% Runs a non-scheduled cleanup ASAP.
 %% Call to this method will schedule a non-planned cleanup which is not different from the periodic one in any sense.
 %% Once cleanup is done, all outdated facts will be removed forever.
-%% Note that if `ttl = infinity' call to this method is useless: there is nothing to cleanup by definition.
-%% @return Number of deleted facts.
+%% Note that if `ttl = infinity', then call to this method is useless: there is nothing to cleanup by definition.
+%% @returns Number of deleted facts.
 -spec cleanup() -> non_neg_integer().
 cleanup() ->
     gen_server:call(?MODULE, cleanup).

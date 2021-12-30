@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_http).
 
 -define(MAX_CONTENT_LENGTH, 2048).

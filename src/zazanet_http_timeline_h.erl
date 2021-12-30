@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_http_timeline_h).
 
 -define(LOG_UNPACK_ERROR(Data, Text),

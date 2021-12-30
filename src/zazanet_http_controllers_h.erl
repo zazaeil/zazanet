@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_http_controllers_h).
 
 -export([init/2]).

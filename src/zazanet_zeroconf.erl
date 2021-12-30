@@ -1,12 +1,16 @@
-%%% CAUTION: AREA UNDER CONSTRUCTION.
-%%% Microcontroller find the Zazanet backend via mDSN (of which Zeroconf is a variety).
-%%% @link https://en.wikipedia.org/wiki/Zero-configuration_networking
-%%% However, it isn't that easy to find a reliable Erlang implementation in the Open Source.
-%%% Now it works like that: there is a versioned precompiled binary at the `/priv/bin' named
-%%% `zeroconf-${git_hash}'. It is a simple CLI that is invoked as via the `open_port' call.
-%%% It does what is expected to be done, however it might be a bad idea to keep this approach
-%%% for the both mid- and long-term perspectives.
-%%% At the moment current module acts as a binding to that magic binary that "just does it!".
+%% @doc
+%% Just a simple wrapper around the precompiled binary doing the Zeroconf magic for us.
+%% <h3><u>CAUTION: AREA UNDER CONSTRUCTION</u></h3>
+%% <h3>Why?</h3>
+%% Microcontroller find the Zazanet backend via mDSN (of which Zeroconf is a variety).
+%% <a href="https://en.wikipedia.org/wiki/Zero-configuration_networking">Wikipedia</a>.
+%% However, it isn't that easy to find a reliable Erlang implementation in the Open Source.
+%% <h3>How?</h3>
+%% Now it works like that: there is a versioned precompiled binary at the `/priv/bin' named
+%% `zeroconf-${git_hash}'. It is a simple CLI that is invoked as via the `open_port' call.
+%% It does what is expected to be done, however it might be a bad idea to keep this approach
+%% for the both mid- and long-term perspectives.
+%% At the moment current module acts as a binding to that magic binary that "just does it!".
 
 -module(zazanet_zeroconf).
 
@@ -31,11 +35,13 @@
 
 -record(state, {service :: #zazanet_zeroconf_service{}, port :: port()}).
 
+%% @private
 start_link(Service) ->
     gen_server:start_link(?MODULE, Service, []).
 
+%% @private
 init(Service) ->
-    %% TODO: lacks proper validation
+    %% TODO: lacks proper validation.
     case open_zeroconf_port(Service) of
         badarg ->
             {stop, badarg};
@@ -44,6 +50,7 @@ init(Service) ->
             {ok, #state{service = Service, port = Port}}
     end.
 
+%% @private
 handle_call(health, _From, State = #state{service = Service}) ->
     %% At the moment health checks are not implemented; it would require
     %% an inter-process communicaiton (IPC)... so that's for the future improvements.
@@ -51,19 +58,29 @@ handle_call(health, _From, State = #state{service = Service}) ->
     ID = iolist_to_binary([<<"zeroconf_service">>, <<".">>, Name]),
     {reply, {ID, green, #{service => ZeroconfService, protocol => Protocol}}, State}.
 
+%% @private
 handle_cast(_, State) ->
     {stop, not_implemented, State}.
 
+%% @private
 handle_info({'EXIT', Port, _}, State = #state{port = Port}) ->
     {stop, badstate, State};
 handle_info(_Info, State) ->
     {stop, not_implemented, State}.
 
+%% @private
 terminate(_Reason, #state{service = Service, port = Port}) ->
     port_close(Port),
     pg(leave, Service),
     ok.
 
+%% @doc
+%% Checks the health of an instance.
+%% At the moment always returns `green', so potential issues with a worker process running the
+%% binary are remained unobserved.
+%% TODO: Implement IPC (interprocess communicaiton) to pass the healthcheck query to a worker process
+%% outside the Erlang boundaries.
+-spec health(pid()) -> {ID :: nonempty_binary(), green, map()}.
 health(PID) ->
     gen_server:call(PID, health).
 

@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_app).
 
 -behaviour(application).

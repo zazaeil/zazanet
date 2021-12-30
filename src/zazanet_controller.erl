@@ -1,10 +1,24 @@
+%% @doc
+%% Implementation notes:
+%% <br />
+%% 1. Instances are immutable by design: once created, they can't be changed, only deleted and recreated.
+%% <br />
+%% 2. They can deal with numeric values only captured by the {@link zazanet_timeline}.
+%% <br />
+%% 3. Current {@link state()} of an instance is determined by a signed difference between
+%% a {@type goal()} and avereged value computed from a data within a `TimeWindow' past milliseconds.
+%% `act' callback encapsulates the reaction.
+%% <br />
+%% 4. Inputs are weighted. Sum of weights must fall within the `1.0 +/- 0.001' range. Weights give fine control
+%% over importance of an input.
+%% @see zazanet_timeline:get/3.
 -module(zazanet_controller).
 
 -behaviour(gen_statem).
 
 -type state() :: green | yellow | red.
 
-%% @doc This callback must implement controlling logic.
+%% This callback must implement controlling logic.
 %% Every time current instance transits from an `OldState' to a `NewState',
 %% this callback will be invoked as `act(self(), OldState, NewState)'.
 %% It is responsible for making the right decision for what's happening.
@@ -44,21 +58,24 @@
          callback_module :: callback_module(),
          delta :: float()}).
 
-%% @doc Starts a new unnamed <b>immutable</b> instance via the `gen_statem:start_link(...)' call.
+%% @doc
+%% Starts a new unnamed <b>immutable</b> instance via the `gen_statem:start_link(...)' call.
 %% Params:
-%% - `ID' - unique controller ID which'd be used to reference it later.
-%% - `Desciption' - optional (presumably, human-friendly) text stored as bytes
-%%   that explains what this controller controls. Note: you won't be able to change it.
-%% - `Interval' - period of time within which an instance stays passive; once it elapses,
-%%   the instance will go over all the `Sensors' and compute a next state to go into.
-%% - `Sensors' - non-empty list of weighted sensor IDs, which will be used
-%%   to query the @see zazanet_timeline. Sum of weights must be 1.0 +/- 0.001.
-%% - `TimeWindow' - how far into the past this instance should look.
-%% - `Goal' - desired value of of underlying controlled system with acceptable deviation from it;
+%% <il>
+%% <li>`ID' - unique controller ID which'd be used to reference it later.</li>
+%% <li>`Desciption' - optional (presumably, human-friendly) text stored as bytes
+%%   that explains what this controller controls. Note: you won't be able to change it.</li>
+%% <li>`Interval' - period of time within which an instance stays passive; once it elapses,
+%%   the instance will go over all the `Sensors' and compute a next state to go into.</li>
+%% <li>`Sensors' - non-empty list of weighted sensor IDs, which will be used
+%%   to query the @see zazanet_timeline. Sum of weights must be 1.0 +/- 0.001.</li>
+%% <li>`TimeWindow' - how far into the past this instance should look.</li>
+%% <li>`Goal' - desired value of of underlying controlled system with acceptable deviation from it;
 %%   at the moment only numeric values are supported. For example, `{10, 1}' would mean that `10' is the
-%%   desired value and state considered `green' within the `10 - 1 .. 10 + 1' range.
-%% - `CallbackModule' - a callback module that holds a function to be invoked once current state of the
-%%   observed system changes and actions may (or may not) be required: @see zazanet_controller:act/3 callback.
+%%   desired value and state considered `green' within the `10 - 1 .. 10 + 1' range.</li>
+%% <li>`CallbackModule' - a callback module that holds a function to be invoked once current state of the
+%%   observed system changes and actions may (or may not) be required: @see zazanet_controller:act/3 callback.</li>
+%% </il>
 -spec start_link(ID :: id(),
                  Description :: description(),
                  Interval :: interval(),
@@ -80,12 +97,16 @@ start_link(ID, Description, Interval, Param, Sensors, TimeWindow, Goal, Callback
               callback_module = CallbackModule},
     gen_statem:start_link(?MODULE, Data, []).
 
+%% @doc
+%% Stops an instance.
 stop(PID) ->
     gen_statem:stop(PID).
 
+%% @private
 callback_mode() ->
     [state_functions, state_enter].
 
+%% @private
 init(Data = #data{}) ->
     case validate(Data) of
         true ->
@@ -96,6 +117,7 @@ init(Data = #data{}) ->
             {stop, badarg}
     end.
 
+%% @private
 terminate(_Reason, _State, #data{id = ID}) ->
     pg:leave(zazanet, {?MODULE, ID}, self()),
     pg:leave(zazanet, ?MODULE, self()),
@@ -103,6 +125,7 @@ terminate(_Reason, _State, #data{id = ID}) ->
 
                                                 % STATE FUNCS
 
+%% @private
 green(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
     case act(CallbackModule, OldState, green) of
         ok ->
@@ -116,6 +139,7 @@ green({call, Caller}, get, Data = #data{interval = Interval}) ->
     gen_statem:reply(Caller, pack(green, Data)),
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
+%% @private
 yellow(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
     case act(CallbackModule, OldState, yellow) of
         ok ->
@@ -129,6 +153,7 @@ yellow({call, Caller}, get, Data = #data{interval = Interval}) ->
     gen_statem:reply(Caller, pack(yellow, Data)),
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
+%% @private
 red(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
     case act(CallbackModule, OldState, red) of
         ok ->
@@ -144,7 +169,8 @@ red({call, Caller}, get, Data = #data{interval = Interval}) ->
 
                                                 % API
 
-%% @doc Gets the state of an intance.
+%% @doc
+%% Gets the state of an intance.
 get(PID) ->
     gen_statem:call(PID, get).
 

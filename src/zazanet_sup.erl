@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_sup).
 
 -behaviour(supervisor).

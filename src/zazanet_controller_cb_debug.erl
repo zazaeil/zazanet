@@ -1,3 +1,4 @@
+%% @private
 -module(zazanet_controller_cb_debug).
 
 -behaviour(zazanet_controller).
