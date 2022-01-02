@@ -57,14 +57,12 @@ all() ->
 -define(RES(StatusCode, Body), {ok, {{_, StatusCode, _}, _, Body}}).
 -define(CMT(Text), {comment, Text}).
 -define(HDS, [{"Accept", "application/json"}]).
--define(API_V1_DEVICES, "/api/v1/devices/").
--define(ID, proplists:get_value(id, Config, "0")).
 
 e2e_ok(Config) ->
     ?RES(200, Body) = ?REQ(get, "/api/health", ?HDS),
     JSON = jiffy:decode(Body, [return_maps]),
     true =
-        lists:any(fun (#{<<"service">> := <<"http">>, <<"health">> := <<"green">>}) ->
+        lists:any(fun (#{<<"service">> := <<"http_server">>, <<"health">> := <<"green">>}) ->
                           true;
                       (_) ->
                           false
@@ -72,137 +70,61 @@ e2e_ok(Config) ->
                   JSON),
     ?CMT("Just a health check.").
 
-e2e_v1_devices_must_have_accept_header(Config) ->
-    ?RES(406, _) = ?REQ(get, ?API_V1_DEVICES, []),
-    ?CMT("Client must explicitly request the `application/json` MIME.").
+                                                % /timeline
 
-e2e_v1_devices_empty(Config) ->
-    ?RES(204, _) = ?REQ(get, ?API_V1_DEVICES, ?HDS),
-    ?CMT("Initially there are not devices at all, so `204` is returned.").
+-define(API_V1_TIMELINE, "/api/v1/timeline/").
+-define(API_V1_TIMELINE_Q(From, To, What),
+        io_lib:format("/api/v1/timeline/?from=~B&to=~B&what=~s", [From, To, What])).
 
-e2e_v1_devices_get_not_found(Config) ->
-    ?RES(404, _) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ?CMT("Returns `404` whenever a given `ID` does not exist.").
+timeline__json(What, Data) ->
+    timeline__json(os:system_time(millisecond), What, Data).
 
-e2e_v1_devices_delete_without_id_not_allowed(Config) ->
-    ?RES(405, _) = ?REQ(delete, ?API_V1_DEVICES, ?HDS),
-    ?CMT("One can't `DELETE` all devices at once.").
+timeline__json(When, What, Data) ->
+    jiffy:encode(#{<<"when">> => When,
+                   <<"what">> => What,
+                   <<"data">> => Data}).
 
-e2e_v1_devices_empty_put(Config) ->
-    ?RES(400, _) = ?REQ(put, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ?CMT("One can't `PUT` without any data.").
-
-e2e_v1_devices_non_json(Config) ->
-    ?RES(400, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, "This is not a valid JSON."),
-    ?CMT("Even if one sets `Content-Type=application/json`, server is "
-         "prepared to a malformed body.").
-
-e2e_v1_devices_put_empty(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?CMT("Server marks newly created devices with `201` status code.").
-
-e2e_v1_devices_put_empty_twice(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?RES(204, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?CMT("Server marks upadated devices with `204` status code.").
-
-e2e_v1_devices_put_then_get(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ID = list_to_integer(?ID),
-    #{<<"id">> := ID} = jiffy:decode(Body, [return_maps]),
-    ?CMT("Checks that `GET` returns a device preserving last `PUT`.").
-
-e2e_v1_devices_put_then_get_all(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES, ?HDS),
-    ID = list_to_integer(?ID),
-    [#{<<"id">> := ID}] = jiffy:decode(Body, [return_maps]),
-    ?CMT("Checks that `GET` returns device in the list preserving last "
-         "`PUT`.").
-
-e2e_v1_devices_put_then_put_then_get(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    JSON =
-        #{<<"state">> =>
-              #{<<"battery">> =>
-                    #{<<"value">> => 98,
-                      <<"unit_of_measurement">> => <<"percent">>,
-                      <<"hardware">> => <<"test_hardware">>}}},
-    ?RES(204, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(JSON)),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ID = list_to_integer(?ID),
-    #{<<"id">> := ID,
-      <<"state">> :=
-          #{<<"battery">> :=
-                #{<<"value">> := 98,
-                  <<"unit_of_measurement">> := <<"percent">>,
-                  <<"hardware">> := <<"test_hardware">>}}} =
-        jiffy:decode(Body, [return_maps]),
-    ?CMT("Checks that `PUT` indeed updates.").
-
-e2e_v1_devices_delete_non_existing_id(Config) ->
-    ?RES(204, _) = ?REQ(delete, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ?CMT("`DELETE` returns `200` even if given `ID` does not exist.").
-
-e2e_v1_devices_put_then_delete_then_get(Config) ->
-    ?RES(201, _) = ?REQ_BDY(put, ?API_V1_DEVICES ++ ?ID, ?HDS, jiffy:encode(#{})),
-    ?RES(204, _) = ?REQ(delete, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ?RES(404, _) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ?CMT("`DELETE` deletes indeed.").
-
-e2e_v1_devices_put_null_param_deletes_it(Config) ->
-    ?RES(201, _) =
-        ?REQ_BDY(put,
-                 ?API_V1_DEVICES ++ ?ID,
-                 ?HDS,
-                 jiffy:encode(#{<<"state">> => #{<<"battery">> => #{<<"value">> => 100}}})),
+e2e__timeline__sensor_param_value__put_get(Config) ->
+    Now = os:system_time(millisecond),
     ?RES(204, _) =
         ?REQ_BDY(put,
-                 ?API_V1_DEVICES ++ ?ID,
-                 ?HDS,
-                 jiffy:encode(#{<<"state">> => #{<<"battery">> => null}})),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ID = list_to_integer(?ID),
-    #{<<"id">> := ID} = jiffy:decode(Body, [return_maps]),
-    ?CMT("`PUT` with `\"parameter_name\": null` stands for the `parameter_name"
-         "` deletion.").
-
-e2e_v1_devices_put_custom_param_with_custom_uom_and_binary_value(Config) ->
-    ?RES(201, _) =
-        ?REQ_BDY(put,
-                 ?API_V1_DEVICES ++ ?ID,
-                 ?HDS,
-                 jiffy:encode(#{<<"state">> =>
-                                    #{<<"custom_param">> =>
-                                          #{<<"value">> => <<"value">>,
-                                            <<"unit_of_measurement">> => <<"uom">>}}})),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ID = list_to_integer(?ID),
-    #{<<"id">> := ID,
-      <<"state">> :=
-          #{<<"custom_param">> :=
-                #{<<"value">> := <<"value">>, <<"unit_of_measurement">> := <<"uom">>}}} =
+                 ?API_V1_TIMELINE,
+                 [],
+                 timeline__json(Now,
+                                <<"zazanet_sensor.id.param_id">>,
+                                #{<<"val">> => 0, <<"uom">> => <<"uom">>})),
+    ?RES(200, Body) =
+        ?REQ(get,
+             ?API_V1_TIMELINE_Q(Now - 1_000, Now + 1_000, "zazanet_sensor.id.param_id"),
+             ?HDS),
+    [#{<<"when">> := _, <<"data">> := #{<<"val">> := 0, <<"uom">> := <<"uom">>}}] =
         jiffy:decode(Body, [return_maps]),
-    ?CMT("System supports custom `binary` parameters, units of measurement "
-         "and values.").
+    ?CMT("Happy flow.").
 
-e2e_v1_devices_put_minimal(Config) ->
+                                                % /controllers
+
+-define(API_V1_CONTROLLERS, "/api/v1/controllers/").
+
+controllers__json() ->
+    jiffy:encode(#{description => <<"Description.">>,
+                   interval => 1_000,
+                   param => <<"param_id">>,
+                   sensors => #{'zazanet_sensor.sensor_id' => 1},
+                   time_window => 5_000,
+                   goal => #{desired_value => 20, acceptable_deviation => 1}}).
+
+e2e__controllers__controller_put_get_delete(Config) ->
     ?RES(201, _) =
-        ?REQ_BDY(put,
-                 ?API_V1_DEVICES ++ ?ID,
-                 ?HDS,
-                 jiffy:encode(#{<<"state">> =>
-                                    #{<<"temperature">> => 20,
-                                      <<"humidity">> => 21,
-                                      <<"battery">> => 22}})),
-    ?RES(200, Body) = ?REQ(get, ?API_V1_DEVICES ++ ?ID, ?HDS),
-    ID = list_to_integer(?ID),
-    #{<<"id">> := ID,
-      <<"state">> :=
-          #{<<"temperature">> := #{<<"value">> := 20},
-            <<"humidity">> := #{<<"value">> := 21},
-            <<"battery">> := #{<<"value">> := 22}}} =
+        ?REQ_BDY(post, ?API_V1_CONTROLLERS ++ "controller_id", ?HDS, controllers__json()),
+    ?RES(200, Body) = ?REQ(get, ?API_V1_CONTROLLERS ++ "controller_id", ?HDS),
+    #{<<"description">> := <<"Description.">>,
+      <<"interval">> := 1_000,
+      <<"sensors">> := #{<<"zazanet_sensor.sensor_id.param_id">> := 1},
+      <<"time_window">> := 5_000,
+      <<"goal">> := #{<<"desired_value">> := 20, <<"acceptable_deviation">> := 1},
+      <<"state">> := <<"red">>,
+      <<"delta">> := null} =
         jiffy:decode(Body, [return_maps]),
-    ?CMT("System supports minimalistic representation of the compile-time "
-         "known params.").
+    ?RES(204, _) = ?REQ(delete, ?API_V1_CONTROLLERS ++ "controller_id", ?HDS),
+    ?RES(404, _) = ?REQ(get, ?API_V1_CONTROLLERS ++ "controller_id", ?HDS),
+    ?CMT("Happy flow.").

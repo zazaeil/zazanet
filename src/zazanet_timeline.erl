@@ -1,18 +1,20 @@
 %% @doc
-%% Stores immutable <i>facts</i> with {@link unix_time_milliseconds()} as a primary key
-%% and provides simple yet efficient API to query them later: {@link get/3}.
-%% Each {@link fact()} has a {@link unix_time_milliseconds(). timestamp} and some {@link what(). secondary key} identifying it. {@type data()} is associated content.
-%% Both TTL-driven auto-cleanups and complete immutability are supported. Moreover, these modes could be changed
-%% without restarting an instance: see {@link ttl/1}.
+%% Stores immutable <i>facts</i> with {@link unix_time_milliseconds()} as a primary key and provides simple yet efficient API to query them later: {@link get/3}.
+%% Each {@link fact()} has a {@link unix_time_milliseconds(). timestamp} and some {@link what(). secondary key} identifying it. {@type data()} is an associated content.
+%% Both TTL-driven auto-cleanups and complete immutability are supported.
 -module(zazanet_timeline).
 
 -behaviour(gen_server).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
+-include("zazanet_ids.hrl").
+
 -export([start/1, start_link/1, stop/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
--export([ttl/1, cleanup/0, set/3, get/1, get/3, to_list/1]).
+-export([cleanup/0, get/1, get/3, to_list/1]).
+-export([set/3, set_sensor_param/6, sensor_param_key/2, set_controller_state/3,
+         controller_state_key/1]).
 
 -type unix_time_milliseconds() :: pos_integer().
 -type what() :: term().
@@ -54,24 +56,21 @@ init(Props) ->
     case proplists:get_value(ttl, Props, infinity) of
         infinity ->
             {ok, #state{ttl = infinity, ets_tid = TID}};
-        TTL ->
-            case validate(ttl, TTL) of
-                true ->
-                    case timer:send_interval(TTL,
-                                             self(),
-                                             cleanup) % second - run the periodic cleanup
-                    of
-                        {ok, TimerRef} ->
-                            {ok,
-                             #state{ttl = TTL,
-                                    ets_tid = TID,
-                                    timer_ref = TimerRef}};
-                        {error, Reason} ->
-                            {stop, Reason}
-                    end;
-                false ->
-                    {stop, badarg}
-            end
+        TTL when is_integer(TTL), TTL > 0 ->
+            case timer:send_interval(TTL,
+                                     self(),
+                                     cleanup) % second - run the periodic cleanup
+            of
+                {ok, TimerRef} ->
+                    {ok,
+                     #state{ttl = TTL,
+                            ets_tid = TID,
+                            timer_ref = TimerRef}};
+                {error, Reason} ->
+                    {stop, Reason}
+            end;
+        _ ->
+            {stop, badarg}
     end.
 
 %% @private
@@ -110,42 +109,9 @@ handle_call({get, From, To, What}, _, State = #state{ets_tid = TID}) ->
                            end)
         end,
     {reply, ets:select(TID, MatchSpec), State};
-handle_call({ttl, NewTTL}, _, State = #state{ttl = OldTTL}) ->
-    case validate(ttl, NewTTL) of
-        true when NewTTL =:= OldTTL ->
-            {reply, ok, State};
-        true ->
-            case {NewTTL, OldTTL} of
-                {infinity, _} ->
-                    ok;
-                {_, infinity} ->
-                    case timer:send_interval(NewTTL, self(), cleanup) of
-                        {ok, TimerRef} ->
-                            {reply, ok, State#state{ttl = NewTTL, timer_ref = TimerRef}};
-                        Error = {error, _} ->
-                            {stop, Error, State}
-                    end;
-                _ ->
-                    case timer:cancel(State#state.timer_ref) of
-                        {ok, cancel} ->
-                            case timer:send_after(NewTTL, self(), cleanup) of
-                                {ok, TimerRef} ->
-                                    {reply, ok, State#state{ttl = NewTTL, timer_ref = TimerRef}};
-                                Error = {error, _} ->
-                                    {stop, Error, State}
-                            end;
-                        Error = {error, _} ->
-                            {stop, Error, State}
-                    end
-            end;
-        false ->
-            {reply, {error, badarg}, State}
-    end;
 handle_call(to_list, _, State = #state{ets_tid = TID}) ->
-    {reply, ets:tab2list(TID), State}.
-
-%% @private
-handle_cast({set, When, What, Data}, State = #state{ttl = TTL, ets_tid = TID})
+    {reply, ets:tab2list(TID), State};
+handle_call(Msg = {set, When, What, Data}, _, State = #state{ttl = TTL})
     when is_integer(When), When > 0 ->
     Now = os:system_time(millisecond),
     Oldest =
@@ -171,12 +137,7 @@ handle_cast({set, When, What, Data}, State = #state{ttl = TTL, ets_tid = TID})
                true ->
                    ok
             end,
-            true =
-                ets:insert(TID,
-                           #fact{'when' = When,
-                                 what = What,
-                                 data = Data}),
-            {noreply, State};
+            do_handle_call(Msg, State);
         _ ->
             logger:debug(#{location => {?FILE, ?LINE},
                            msg => "Fact ignored: too old.",
@@ -185,6 +146,9 @@ handle_cast({set, When, What, Data}, State = #state{ttl = TTL, ets_tid = TID})
                            ttl => TTL}),
             {noreply, State}
     end.
+
+handle_cast(_, State) ->
+    {stop, not_implemented, State}.
 
 %% @private
 handle_info(cleanup, State = #state{ttl = TTL, ets_tid = TID}) ->
@@ -222,6 +186,7 @@ get(What) ->
 %% Both `From = infinity' and `To = infinity' would give you an entire timeline (filtered to {@link what()}-typed facts only, of course).
 %% If `From > To', `badarg' is returned.
 %% Strict equality is used to match `What' with facts found in the timeline, so it acts like a `when What =:= ...' guard.
+%% Use handy {@link sensor_param_key/2}, {@link conroller_state_key/1} to get right `What' for your queries.
 -spec get(From :: infinity | unix_time_milliseconds(),
           To :: infinity | unix_time_milliseconds(),
           What :: what()) ->
@@ -239,20 +204,52 @@ to_list(Timeout) ->
     gen_server:call(?MODULE, to_list, Timeout).
 
 %% @doc
-%% Asynchronously registers a given fact in the timeline.
-%% Note that it may not become immediately available because of async nature of the process.
--spec set(When :: unix_time_milliseconds(), What :: what(), Data :: data()) -> ok.
+%% Synchronously registers a given {@link fact()} in the `zazanet_timeline' instance.
+%% @see get/3
+-spec set(When :: unix_time_milliseconds(), What :: what(), Data :: data()) ->
+             {ok, reference()}.
 set(When, What, Data) ->
     gen_server:cast(?MODULE, {set, When, What, Data}).
 
 %% @doc
-%% Sets the time-to-live for the timeline facts.
-%% It would automatically ensure periodic cleanups with period equal to a specified `TTL' value.
-%% `TTL' should be given in milliseconds.
-%% `TTL = infinity' would switch off autocleanup and the timeline would act as an readonly grow-only log.
--spec ttl(TTL :: infinity | timeout()) -> ok | {error, Reason :: badarg | term()}.
-ttl(TTL) ->
-    gen_server:call(?MODULE, {ttl, TTL}).
+%% A conrete varian of the {@link set/3}.
+%% Performs validation and if it fails, `badarg' is returned.
+-type sensor_id() :: nonempty_binary().
+-type sensor_param() :: nonempty_binary().
+-type sensor_param_value() :: number().
+-type sensor_param_unit_of_measurement() :: nonempty_binary().
+-type sensor_hardware() :: nonempty_binary().
+
+-spec set_sensor_param(When :: unix_time_milliseconds(),
+                       SensorID :: sensor_id(),
+                       Param :: sensor_param(),
+                       Value :: sensor_param_value(),
+                       UOM :: undefined | sensor_param_unit_of_measurement(),
+                       Hardware :: undefined | sensor_hardware()) ->
+                          ok | badarg.
+set_sensor_param(When, SensorID, Param, Value, UOM, Hardware) ->
+    gen_server:call(?MODULE,
+                    {set, When, ?MODULE:sensor_param_key(SensorID, Param), {Value, UOM, Hardware}}).
+
+%% @doc
+%% @see set_sensor_param/6.
+sensor_param_key(SensorID, Param) ->
+    ?ZAZANET_SENSOR_PARAM_KEY(SensorID, Param).
+
+%% @doc
+%% A conrete varian of the {@link set/3}.
+%% Performs validation and if it fails, `badarg' is returned.
+-spec set_controller_state(When :: unix_time_milliseconds(),
+                           ControllerID :: zazanet_controller:id(),
+                           State :: zazanet_controller:state()) ->
+                              ok | badarg.
+set_controller_state(When, ControllerID, State) ->
+    gen_server:call(?MODULE, {set, When, ?MODULE:contoller_param_key(ControllerID), State}).
+
+%% @doc
+%% @see set_controller_state/3.
+controller_state_key(ControllerID) ->
+    ?ZAZANET_CONTROLLER_STATE_KEY(ControllerID).
 
 %% @doc
 %% Runs a non-scheduled cleanup ASAP.
@@ -266,15 +263,46 @@ cleanup() ->
 
                                                 % PRIV
 
-validate(ttl, infinity) ->
-    true;
-validate(ttl, TTL) when is_integer(TTL), TTL >= 0 ->
-    true;
-validate(ttl, _) ->
-    false.
-
 do_cleanup(infinity, _) ->
     0;
 do_cleanup(TTL, TID) ->
     Threshold = os:system_time(millisecond) - TTL,
     ets:select_delete(TID, ets:fun2ms(fun(#fact{'when' = When}) -> When < Threshold end)).
+
+do_handle_call({set,
+                When,
+                Key = ?ZAZANET_SENSOR_PARAM_KEY(SensorID, Param),
+                {Value, UOM, Hardware}},
+               State) ->
+    try
+        zazanet_validation:do(SensorID, [nonempty_binary]),
+        zazanet_validation:do(Param, [nonempty_binary]),
+        zazanet_validation:do(Value, [number]),
+        zazanet_validation:do(UOM, [nonempty_binary]),
+        zazanet_validation:do(Hardware, [{'or', [undefined], [nonempty_binary]}]),
+        insert({When, Key, {Value, UOM, Hardware}}, State),
+        {reply, ok, State}
+    catch
+        error:badarg ->
+            {reply, badarg, State}
+    end;
+do_handle_call({set,
+                When,
+                Key = ?ZAZANET_CONTROLLER_STATE_KEY(ControllerID),
+                ControllerState},
+               State) ->
+    case zazanet_controller:validate(id, ControllerID)
+         andalso zazanet_controller:validate(state, ControllerState)
+    of
+        true ->
+            insert({When, Key, ControllerState}, State),
+            {reply, ok, State};
+        false ->
+            {reply, badarg, State}
+    end.
+
+insert({When, What, Data}, #state{ets_tid = TID}) ->
+    ets:insert(TID,
+               #fact{'when' = When,
+                     what = What,
+                     data = Data}).

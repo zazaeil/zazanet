@@ -3,10 +3,11 @@
 
 -behaviour(zazanet_controller).
 
--export([act/3]).
+-export([act/4]).
 
-act(PID, OldState, NewState) ->
+act(PID, OldState, NewState, Extra) ->
     logger:debug(#{location => {?FILE, ?LINE},
                    pid => PID,
                    old_state => OldState,
-                   new_state => NewState}).
+                   new_state => NewState,
+                   extra => Extra}).

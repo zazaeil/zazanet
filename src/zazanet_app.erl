@@ -1,4 +1,3 @@
-%% @private
 -module(zazanet_app).
 
 -behaviour(application).
@@ -7,6 +6,15 @@
 
 -export([start/2, stop/1]).
 
+-type zazanet_sensor_id() :: nonempty_binary().
+-type zazanet_sensor_param() :: nonempty_binary().
+-type id() ::
+    {zazanet_controller, zazanet_controller:id()} |
+    {zazanet_sensor, zazanet_sensor_id(), zazanet_sensor_param()}.
+
+-export_type([zazanet_sensor_id/0, zazanet_sensor_param/0, id/0]).
+
+%% @private
 start(_StartType, Props) ->
     %% The `zazanet_cfg' is required to read default data like an TCP port to run on,
     %% app version and probably other params as well; so first the root supervisor
@@ -47,5 +55,6 @@ start(_StartType, Props) ->
             {error, Error}
     end.
 
+%% @private
 stop(_State) ->
     ok = cowboy:stop_listener(zazanet_http).

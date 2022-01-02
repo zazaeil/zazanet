@@ -14,25 +14,29 @@
 %% @see zazanet_timeline:get/3.
 -module(zazanet_controller).
 
+-include("zazanet_logger.hrl").
+
 -behaviour(gen_statem).
 
 -type state() :: green | yellow | red.
-
 %% This callback must implement controlling logic.
-%% Every time current instance transits from an `OldState' to a `NewState',
-%% this callback will be invoked as `act(self(), OldState, NewState)'.
+%% Every time current instance transits from an `OldState' to a `NewState', this callback will run.
 %% It is responsible for making the right decision for what's happening.
 %% And if it can't, then `{stop, Reason}' to be returned and the instance will stop.
+%% See {@link act_extra(). additional params} that might be useful for such a decision.
 %% @see zazanet_controller:get/1.
--callback act(PID :: pid(), OldState :: state(), NewState :: state()) ->
-                 ok | {stop, Reason :: term()}.
+-type extra() :: {'when', When :: zazanet_timeline:unix_time_milliseconds()}.
 
--include("zazanet_logger.hrl").
+-callback act(PID :: pid(),
+              OldState :: state(),
+              NewState :: state(),
+              Extra :: [extra()]) ->
+                 ok | {stop, Reason :: term()}.
 
 -export([start_link/8, stop/1]).
 -export([callback_mode/0, init/1, terminate/3]).
 -export([green/3, yellow/3, red/3]).
--export([get/1]).
+-export([validate/2, get/1]).
 
 -type id() :: nonempty_binary().
 -type description() :: undefined | nonempty_binary().
@@ -110,9 +114,14 @@ callback_mode() ->
 init(Data = #data{}) ->
     case validate(Data) of
         true ->
-            pg:join(zazanet, ?MODULE, self()),
+            pg:join(zazanet, zazanet_controllers, self()),
             pg:join(zazanet, {?MODULE, Data#data.id}, self()),
-            setelement(1, next_state(Data), ok);
+            case next_state(Data) of
+                {stop, Reason} ->
+                    {stop, Reason};
+                Reply ->
+                    setelement(1, Reply, ok)
+            end;
         false ->
             {stop, badarg}
     end.
@@ -120,14 +129,18 @@ init(Data = #data{}) ->
 %% @private
 terminate(_Reason, _State, #data{id = ID}) ->
     pg:leave(zazanet, {?MODULE, ID}, self()),
-    pg:leave(zazanet, ?MODULE, self()),
+    pg:leave(zazanet, zazanet_controllers, self()),
     ok.
 
                                                 % STATE FUNCS
 
 %% @private
-green(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
-    case act(CallbackModule, OldState, green) of
+green(enter,
+      OldState,
+      #data{interval = Interval,
+            callback_module = CallbackModule,
+            delta = Delta}) ->
+    case act(CallbackModule, OldState, green, Delta) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -140,8 +153,12 @@ green({call, Caller}, get, Data = #data{interval = Interval}) ->
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
 %% @private
-yellow(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
-    case act(CallbackModule, OldState, yellow) of
+yellow(enter,
+       OldState,
+       #data{interval = Interval,
+             callback_module = CallbackModule,
+             delta = Delta}) ->
+    case act(CallbackModule, OldState, yellow, Delta) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -154,8 +171,12 @@ yellow({call, Caller}, get, Data = #data{interval = Interval}) ->
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
 %% @private
-red(enter, OldState, #data{interval = Interval, callback_module = CallbackModule}) ->
-    case act(CallbackModule, OldState, red) of
+red(enter,
+    OldState,
+    #data{interval = Interval,
+          callback_module = CallbackModule,
+          delta = Delta}) ->
+    case act(CallbackModule, OldState, red, Delta) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -174,67 +195,30 @@ red({call, Caller}, get, Data = #data{interval = Interval}) ->
 get(PID) ->
     gen_statem:call(PID, get).
 
-                                                % PRIV
+%% @doc
+%% Does the property-wise validation.
+-type property() ::
+    id |
+    description |
+    interval |
+    param |
+    time_window |
+    sensors |
+    sensor |
+    goal |
+    callback_module |
+    state().
 
-reduce(Param, WeightedSensors, TimeWindow) ->
-    Now = os:system_time(millisecond),
-    ToBePartitioned =
-        %% At this moment a "weighted average" has to be computed.
-        %% However, it may be the case that for the given `TimeWindow' nothing has arrived;
-        %% which means that corresponding weight is lost.
-        %% That's why partition is needed - it saves lost weights for future to calculate correction.
-        lists:map(fun({SensorID, Weight}) ->
-                     What = concat(SensorID, Param),
-                     case lists:map(fun({_, _, #{<<"value">> := Value}}) -> Value * Weight end,
-                                    zazanet_timeline:get(Now - TimeWindow, Now, What))
-                     of
-                         [] -> {lost_weight, Weight};
-                         WeightedValues -> lists:sum(WeightedValues) / length(WeightedValues)
-                     end
-                  end,
-                  WeightedSensors),
-    case lists:partition(fun ({lost_weight, _}) ->
-                                 false;
-                             (_) ->
-                                 true
-                         end,
-                         ToBePartitioned)
-    of
-        {[], _} ->
-            %% Getting here means that nothing at all has happend within the `TimeWindow'.
-            red;
-        {WeightedValues, LostWeights} ->
-            %% Some weights might've been lost by now
-            %% and the outcome has to be corrected appropriately.
-            %% In case no weights were lost, `1 - 0' will evalute to the division by 1,
-            %% which won't change the outcome.
-            %% Otherwise, the outcome will be corrected as expected.
-            LostWeight =
-                lists:sum(
-                    lists:map(fun({lost_weight, Weight}) -> Weight end, LostWeights)),
-            lists:sum(WeightedValues) / length(WeightedValues) / (1 - LostWeight)
-    end.
-
-next_state(Data =
-               #data{interval = Interval,
-                     param = Param,
-                     sensors = Sensors,
-                     time_window = TimeWindow,
-                     goal = {DesiredValue, AcceptableDeviation}}) ->
-    case reduce(Param, Sensors, TimeWindow) of
-        red ->
-            {next_state, red, Data#data{delta = undefined}, [{timeout, Interval, interval}]};
-        Value ->
-            case Value - DesiredValue of
-                Delta when -AcceptableDeviation =< Delta, Delta =< AcceptableDeviation ->
-                    {next_state, green, Data#data{delta = Delta}, [{timeout, Interval, interval}]};
-                Delta when -(2 * AcceptableDeviation) =< Delta, Delta =< 2 * AcceptableDeviation ->
-                    {next_state, yellow, Data#data{delta = Delta}, [{timeout, Interval, interval}]};
-                Delta ->
-                    {next_state, red, Data#data{delta = Delta}, [{timeout, Interval, interval}]}
-            end
-    end.
-
+-spec validate(property(), term()) -> boolean().
+validate(state, green) ->
+    true;
+validate(state, yellow) ->
+    true;
+validate(state, red) ->
+    true;
+validate(state, State) ->
+    ?LOG_VALIDATION_ERROR(State, "Bad state."),
+    false;
 validate(id, ID) when is_binary(ID), byte_size(ID) > 0 ->
     true;
 validate(id, ID) ->
@@ -279,8 +263,8 @@ validate(sensors, Sensors) ->
     false;
 validate(sensor, {ID, Weight})
     when is_binary(ID), byte_size(ID) > 0, is_number(Weight), 0 =< Weight, Weight =< 1 ->
-    case binary:part(ID, {0, 7}) of
-        <<"sensor.">> ->
+    case binary:part(ID, {0, 15}) of
+        <<"zazanet_sensor.">> ->
             true;
         _ ->
             ?LOG_VALIDATION_ERROR(ID, "Bad sensor ID."),
@@ -297,9 +281,93 @@ validate(goal, Goal) ->
     false;
 validate(callback_module, CallbackModule) when is_atom(CallbackModule) ->
     true;
-validate(callback, CallbackModule) ->
+validate(callback_module, CallbackModule) ->
     ?LOG_VALIDATION_ERROR(CallbackModule, "Bad callback module."),
     false.
+
+                                                % PRIV
+
+reduce(Param, WeightedSensors, TimeWindow) ->
+    Now = os:system_time(millisecond),
+    ToBePartitioned =
+        %% At this moment a "weighted average" has to be computed.
+        %% However, it may be the case that for the given `TimeWindow' nothing has arrived;
+        %% which means that corresponding weight is lost.
+        %% That's why partition is needed - it saves lost weights for future to calculate correction.
+        lists:map(fun({SensorID, Weight}) ->
+                     Facts =
+                         zazanet_timeline:get(Now - TimeWindow,
+                                              Now,
+                                              zazanet_timeline:sensor_param_key(SensorID, Param)),
+                     %% All UOMs have to be consistent with each other.
+                     UOMs =
+                         sets:from_list(
+                             lists:map(fun({_, _, {_, UOM, _}}) -> UOM end, Facts)),
+                     case sets:size(UOMs) of
+                         0 -> ok;
+                         1 -> ok;
+                         _ -> error({badarg, {inconsistent_uoms, UOMs}})
+                     end,
+                     case lists:map(fun({_, _, {Value, _, _}}) -> Value * Weight end, Facts) of
+                         [] -> {lost_weight, Weight};
+                         WeightedValues -> lists:sum(WeightedValues) / length(WeightedValues)
+                     end
+                  end,
+                  WeightedSensors),
+    case lists:partition(fun ({lost_weight, _}) ->
+                                 false;
+                             (_) ->
+                                 true
+                         end,
+                         ToBePartitioned)
+    of
+        {[], _} ->
+            %% Getting here means that nothing at all has happend within the `TimeWindow'.
+            red;
+        {WeightedValues, LostWeights} ->
+            %% Some weights might've been lost by now
+            %% and the outcome has to be corrected appropriately.
+            %% In case no weights were lost, `1 - 0' will evalute to the division by 1,
+            %% which won't change the outcome.
+            %% Otherwise, the outcome will be corrected as expected.
+            LostWeight =
+                lists:sum(
+                    lists:map(fun({lost_weight, Weight}) -> Weight end, LostWeights)),
+            lists:sum(WeightedValues) / length(WeightedValues) / (1 - LostWeight)
+    end.
+
+next_state(Data =
+               #data{interval = Interval,
+                     param = Param,
+                     sensors = Sensors,
+                     time_window = TimeWindow,
+                     goal = {DesiredValue, AcceptableDeviation}}) ->
+    try
+        case reduce(Param, Sensors, TimeWindow) of
+            red ->
+                {next_state, red, Data#data{delta = undefined}, [{timeout, Interval, interval}]};
+            Value ->
+                case Value - DesiredValue of
+                    Delta when -AcceptableDeviation =< Delta, Delta =< AcceptableDeviation ->
+                        {next_state,
+                         green,
+                         Data#data{delta = Delta},
+                         [{timeout, Interval, interval}]};
+                    Delta
+                        when -(2 * AcceptableDeviation) =< Delta,
+                             Delta =< 2 * AcceptableDeviation ->
+                        {next_state,
+                         yellow,
+                         Data#data{delta = Delta},
+                         [{timeout, Interval, interval}]};
+                    Delta ->
+                        {next_state, red, Data#data{delta = Delta}, [{timeout, Interval, interval}]}
+                end
+        end
+    catch
+        error:{badarg, inconsistent_uoms, UOMs} ->
+            {stop, {badarg, {inconsitent_uoms, UOMs}}}
+    end.
 
 validate(#data{id = ID,
                description = Description,
@@ -336,8 +404,11 @@ weights_sum_to_1(WeightedSensors, Accuracy) ->
             lists:map(fun({_, Weight}) -> Weight end, WeightedSensors)),
     abs(1 - SumOfWeights) =< Accuracy.
 
-act(CallbackModule, OldState, NewState) ->
-    CallbackModule:act(self(), OldState, NewState).
+act(CallbackModule, OldState, NewState, Delta) ->
+    CallbackModule:act(self(),
+                       OldState,
+                       NewState,
+                       [{'when', os:system_time(millisecond)}, {delta, Delta}]).
 
 pack(State,
      #data{id = ID,
@@ -359,7 +430,12 @@ pack(State,
       time_window => TimeWindow,
       goal => #{desired_value => DesiredValue, acceptable_deviation => AcceptableDeviation},
       state => State,
-      delta => Delta}.
+      delta =>
+          if Delta =:= undefined ->
+                 null;
+             true ->
+                 Delta
+          end}.
 
 concat(SensorID, Param) ->
     iolist_to_binary([SensorID, <<".">>, Param]).
