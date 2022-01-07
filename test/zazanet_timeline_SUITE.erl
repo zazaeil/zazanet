@@ -8,9 +8,16 @@ suite() ->
 all() ->
     zazanet_ct:with_prefix(?MODULE, "test_").
 
-init_per_testcase(_, Config) ->
-    {ok, _} = zazanet_timeline:start([]),
-    Config.
+init_per_testcase(TestName, Config) ->
+    case TestName of
+        test_ignores_too_old_facts ->
+            TTL = 10_000,
+            {ok, _} = zazanet_timeline:start([{ttl, TTL}]),
+            [{ttl, TTL} | Config];
+        _ ->
+            {ok, _} = zazanet_timeline:start([]),
+            Config
+    end.
 
 end_per_testcase(_, _) ->
     zazanet_timeline:stop().
@@ -35,21 +42,10 @@ test_gets_single_fact_duplicated_twice(_Config) ->
     zazanet_timeline:set(When, test_fact, ok),
     [{When, test_fact, ok}] = zazanet_timeline:get(test_fact).
 
-test_ignores_too_old_facts(_Config) ->
+test_ignores_too_old_facts(Config) ->
+    TTL = proplists:get_value(ttl, Config),
     When = os:system_time(millisecond),
-    ok = zazanet_timeline:ttl(500),
-    zazanet_timeline:set(When - 501, test_fact, ok),
-    [] = zazanet_timeline:get(test_fact).
-
-test_ttl(_Config) ->
-    When = os:system_time(millisecond),
-    zazanet_timeline:set(When, test_fact, ok),
-    [{When, test_fact, ok}] = zazanet_timeline:get(test_fact),
-    zazanet_timeline:ttl(25),
-    receive after 25 ->
-        ok
-    end,
-    zazanet_timeline:cleanup(),
+    too_old = zazanet_timeline:set(When - 1 - TTL, test_fact, ok),
     [] = zazanet_timeline:get(test_fact).
 
 test_gets_multiple_facts(_Config) ->
@@ -59,4 +55,4 @@ test_gets_multiple_facts(_Config) ->
     zazanet_timeline:set(When1, not_related, ok),
     zazanet_timeline:set(When2, not_related_too, ok),
     zazanet_timeline:set(When1, test_fact, first),
-    [{When1, test_fact, first}, {When2, test_fact, last}] = zazanet_timeline:get(test_fact).
+    [{When2, test_fact, last}, {When1, test_fact, first}] = zazanet_timeline:get(test_fact).

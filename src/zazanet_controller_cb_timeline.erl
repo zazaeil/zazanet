@@ -3,25 +3,28 @@
 
 -behaviour(zazanet_controller).
 
--export([act/4]).
+-export([act_params/0, act/4]).
 
-act(PID, _, NewState, Extra) ->
+act_params() ->
+    [id].
+
+act(When, _OldState, NewState, #{id := ID}) ->
     try
-        When = proplists:get_value('when', Extra),
-        #{id := ID,
-          goal := Goal,
-          delta := Delta} =
-            zazanet_controller:get(PID),
-        zazanet_timeline:set(When,
-                             {zazanet_controller, ID},
-                             #{state => NewState,
-                               delta => Delta,
-                               goal => Goal}),
-        ok
+        case zazanet_timeline:set_controller_state(When, ID, NewState) of
+            ok ->
+                ok;
+            badarg ->
+                {stop, badarg}
+        end
     catch
-        error:Reason ->
+        error:Reason:Stacktrace ->
             logger:error(#{location => {?FILE, ?LINE},
                            error => Reason,
-                           pid => PID}),
-            {stop, Reason}
+                           stacktrace => Stacktrace}),
+            {stop, Reason};
+        _:Error:Stacktrace ->
+            logger:error(#{location => {?FILE, ?LINE},
+                           error => Error,
+                           stacktrace => Stacktrace}),
+            {stop, Error}
     end.

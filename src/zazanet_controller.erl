@@ -19,18 +19,13 @@
 -behaviour(gen_statem).
 
 -type state() :: green | yellow | red.
-%% This callback must implement controlling logic.
-%% Every time current instance transits from an `OldState' to a `NewState', this callback will run.
-%% It is responsible for making the right decision for what's happening.
-%% And if it can't, then `{stop, Reason}' to be returned and the instance will stop.
-%% See {@link act_extra(). additional params} that might be useful for such a decision.
-%% @see zazanet_controller:get/1.
--type extra() :: {'when', When :: zazanet_timeline:unix_time_milliseconds()}.
+-type act_param() :: id | delta.
 
--callback act(PID :: pid(),
+-callback act_params() -> [act_param()].
+-callback act(When :: zazanet_timeline:unix_time_milliseconds(),
               OldState :: state(),
               NewState :: state(),
-              Extra :: [extra()]) ->
+              Params :: [act_param()]) ->
                  ok | {stop, Reason :: term()}.
 
 -export([start_link/8, stop/1]).
@@ -135,12 +130,8 @@ terminate(_Reason, _State, #data{id = ID}) ->
                                                 % STATE FUNCS
 
 %% @private
-green(enter,
-      OldState,
-      #data{interval = Interval,
-            callback_module = CallbackModule,
-            delta = Delta}) ->
-    case act(CallbackModule, OldState, green, Delta) of
+green(enter, OldState, Data = #data{interval = Interval}) ->
+    case act(OldState, green, Data) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -153,12 +144,8 @@ green({call, Caller}, get, Data = #data{interval = Interval}) ->
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
 %% @private
-yellow(enter,
-       OldState,
-       #data{interval = Interval,
-             callback_module = CallbackModule,
-             delta = Delta}) ->
-    case act(CallbackModule, OldState, yellow, Delta) of
+yellow(enter, OldState, Data = #data{interval = Interval}) ->
+    case act(OldState, yellow, Data) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -171,12 +158,8 @@ yellow({call, Caller}, get, Data = #data{interval = Interval}) ->
     {keep_state_and_data, [{timeout, Interval, interval}]}.
 
 %% @private
-red(enter,
-    OldState,
-    #data{interval = Interval,
-          callback_module = CallbackModule,
-          delta = Delta}) ->
-    case act(CallbackModule, OldState, red, Delta) of
+red(enter, OldState, Data = #data{interval = Interval}) ->
+    case act(OldState, red, Data) of
         ok ->
             {keep_state_and_data, [{timeout, Interval, interval}]};
         {stop, Reason} ->
@@ -404,11 +387,22 @@ weights_sum_to_1(WeightedSensors, Accuracy) ->
             lists:map(fun({_, Weight}) -> Weight end, WeightedSensors)),
     abs(1 - SumOfWeights) =< Accuracy.
 
-act(CallbackModule, OldState, NewState, Delta) ->
-    CallbackModule:act(self(),
-                       OldState,
-                       NewState,
-                       [{'when', os:system_time(millisecond)}, {delta, Delta}]).
+act(OldState,
+    NewState,
+    #data{id = ID,
+          delta = Delta,
+          callback_module = CallbackModule}) ->
+    CallbackModule:act(
+        os:system_time(millisecond),
+        OldState,
+        NewState,
+        maps:from_list(
+            lists:map(fun (id) ->
+                              {id, ID};
+                          (delta) ->
+                              {delta, Delta}
+                      end,
+                      CallbackModule:act_params()))).
 
 pack(State,
      #data{id = ID,

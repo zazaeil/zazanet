@@ -108,7 +108,14 @@ handle_call({get, From, To, What}, _, State = #state{ets_tid = TID}) ->
                               {When, SomeWhat, Data}
                            end)
         end,
-    {reply, ets:select(TID, MatchSpec), State};
+    {reply,
+     %% Since `bab' is used and `sorted_set' is not appropriate, sorting has to be done additionally.
+     %% Even though, it's quite an important ensure for a caller of this function.
+     %% Note: records sorted in the desc order for the usability sake: most probably, the newest data
+     %% would be of a more interest than the older one.
+     lists:sort(fun({LWhen, _, _}, {RWhen, _, _}) -> LWhen >= RWhen end,
+                ets:select(TID, MatchSpec)),
+     State};
 handle_call(to_list, _, State = #state{ets_tid = TID}) ->
     {reply, ets:tab2list(TID), State};
 handle_call(Msg = {set, When, What, Data}, _, State = #state{ttl = TTL})
@@ -144,7 +151,7 @@ handle_call(Msg = {set, When, What, Data}, _, State = #state{ttl = TTL})
                            'when' => When,
                            now => Now,
                            ttl => TTL}),
-            {noreply, State}
+            {reply, too_old, State}
     end.
 
 handle_cast(_, State) ->
@@ -203,13 +210,15 @@ get(From, To, What) ->
 to_list(Timeout) ->
     gen_server:call(?MODULE, to_list, Timeout).
 
+-type set_reply() :: ok | badarg | too_old.
+
 %% @doc
 %% Synchronously registers a given {@link fact()} in the `zazanet_timeline' instance.
 %% @see get/3
 -spec set(When :: unix_time_milliseconds(), What :: what(), Data :: data()) ->
-             {ok, reference()}.
+             set_reply().
 set(When, What, Data) ->
-    gen_server:cast(?MODULE, {set, When, What, Data}).
+    gen_server:call(?MODULE, {set, When, What, Data}).
 
 %% @doc
 %% A conrete varian of the {@link set/3}.
@@ -226,7 +235,7 @@ set(When, What, Data) ->
                        Value :: sensor_param_value(),
                        UOM :: undefined | sensor_param_unit_of_measurement(),
                        Hardware :: undefined | sensor_hardware()) ->
-                          ok | badarg.
+                          set_reply().
 set_sensor_param(When, SensorID, Param, Value, UOM, Hardware) ->
     gen_server:call(?MODULE,
                     {set, When, ?MODULE:sensor_param_key(SensorID, Param), {Value, UOM, Hardware}}).
@@ -242,9 +251,9 @@ sensor_param_key(SensorID, Param) ->
 -spec set_controller_state(When :: unix_time_milliseconds(),
                            ControllerID :: zazanet_controller:id(),
                            State :: zazanet_controller:state()) ->
-                              ok | badarg.
+                              set_reply().
 set_controller_state(When, ControllerID, State) ->
-    gen_server:call(?MODULE, {set, When, ?MODULE:contoller_param_key(ControllerID), State}).
+    gen_server:call(?MODULE, {set, When, ?MODULE:controller_state_key(ControllerID), State}).
 
 %% @doc
 %% @see set_controller_state/3.
@@ -299,7 +308,10 @@ do_handle_call({set,
             {reply, ok, State};
         false ->
             {reply, badarg, State}
-    end.
+    end;
+do_handle_call({set, When, Key, Data}, State) ->
+    insert({When, Key, Data}, State),
+    {reply, ok, State}.
 
 insert({When, What, Data}, #state{ets_tid = TID}) ->
     ets:insert(TID,
