@@ -282,6 +282,7 @@ reduce(Param, WeightedSensors, TimeWindow) ->
                          zazanet_timeline:get(Now - TimeWindow,
                                               Now,
                                               zazanet_timeline:sensor_param_key(SensorID, Param)),
+                     logger:debug(#{sensor_id => SensorID, facts => Facts}),
                      %% All UOMs have to be consistent with each other.
                      UOMs =
                          sets:from_list(
@@ -325,6 +326,7 @@ next_state(Data =
                      sensors = Sensors,
                      time_window = TimeWindow,
                      goal = {DesiredValue, AcceptableDeviation}}) ->
+    logger:debug(#{location => {?FILE, ?LINE}, data => Data}),
     try
         case reduce(Param, Sensors, TimeWindow) of
             red ->

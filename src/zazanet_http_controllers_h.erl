@@ -55,9 +55,7 @@ do_post(Req, ID) ->
       <<"param">> := Param,
       <<"sensors">> := Sensors,
       <<"time_window">> := TimeWindow,
-      <<"goal">> :=
-          #{<<"desired_value">> := DesiredValue,
-            <<"acceptable_deviation">> := AcceptableDeviation}} =
+      <<"goal">> := #{<<"desired_value">> := DesiredValue, <<"acceptable_deviation">> := AcceptableDeviation}} =
         JSON,
     case zazanet_controller_sup:start_child(ID,
                                             maps:get(<<"description">>, JSON, undefined),

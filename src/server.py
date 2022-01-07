@@ -8,11 +8,11 @@ if __name__ == '__main__':
         value = float(input('temperature = '))
         resp = requests.put('http://localhost:8080/api/v1/timeline', json={
             'when': int(time.time() * 1_000),
-            'what': 'sensor.1.temperature',
+            'what': 'zazanet_sensor.1.temperature',
             'data': {
-                'hardware': 'dht11',
-                'unit': 'celsius',
-                'value': value
+                'hw': 'dht11',
+                'uom': 'celsius',
+                'val': value
             }
         })
         print('{} :: {}'.format(value, resp.status_code))

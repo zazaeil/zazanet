@@ -35,21 +35,22 @@ do(_, []) ->
 do(Term, [{'not', Pipeline} | SubPipeline]) ->
     try
         ?MODULE:do(Term, Pipeline),
-        error({local, badarg})
+        error({internal, badarg})
     catch
         error:badarg ->
             ?MODULE:do(Term, SubPipeline);
-        error:{local, badarg} ->
+        error:{internal, badarg} ->
             error(badarg)
     end;
 do(Term, [{'or', LeftPipeline, RightPipeline} | SubPipeline]) ->
     try
         ?MODULE:do(Term, LeftPipeline),
+        ?MODULE:do(Term, SubPipeline),
         true
     catch
         error:badarg ->
             ?MODULE:do(Term, RightPipeline),
-            ?MODULE:do(SubPipeline)
+            ?MODULE:do(Term, SubPipeline)
     end;
 do(Term, [{'and', LeftPipeline, RightPipeline} | SubPipeline]) ->
     ?MODULE:do(Term, LeftPipeline),

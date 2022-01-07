@@ -8,7 +8,11 @@
 act_params() ->
     [id].
 
-act(When, _OldState, NewState, #{id := ID}) ->
+act(When, OldState, NewState, Params = #{id := ID}) ->
+    logger:debug(#{location => {?FILE, ?LINE},
+                   old_state => OldState,
+                   new_state => NewState,
+                   params => Params}),
     try
         case zazanet_timeline:set_controller_state(When, ID, NewState) of
             ok ->

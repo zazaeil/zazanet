@@ -109,7 +109,7 @@ handle_call({get, From, To, What}, _, State = #state{ets_tid = TID}) ->
                            end)
         end,
     {reply,
-     %% Since `bab' is used and `sorted_set' is not appropriate, sorting has to be done additionally.
+     %% Since `bag' is used and `sorted_set' is not appropriate, sorting has to be done additionally.
      %% Even though, it's quite an important ensure for a caller of this function.
      %% Note: records sorted in the desc order for the usability sake: most probably, the newest data
      %% would be of a more interest than the older one.
@@ -243,7 +243,7 @@ set_sensor_param(When, SensorID, Param, Value, UOM, Hardware) ->
 %% @doc
 %% @see set_sensor_param/6.
 sensor_param_key(SensorID, Param) ->
-    ?ZAZANET_SENSOR_PARAM_KEY(SensorID, Param).
+    ?ZAZANET_SENSOR_PARAM_KEY(no_prefix(<<"zazanet_sensor.">>, SensorID), Param).
 
 %% @doc
 %% A conrete varian of the {@link set/3}.
@@ -258,7 +258,7 @@ set_controller_state(When, ControllerID, State) ->
 %% @doc
 %% @see set_controller_state/3.
 controller_state_key(ControllerID) ->
-    ?ZAZANET_CONTROLLER_STATE_KEY(ControllerID).
+    ?ZAZANET_CONTROLLER_STATE_KEY(no_prefix(<<"zazanet_controller.">>, ControllerID)).
 
 %% @doc
 %% Runs a non-scheduled cleanup ASAP.
@@ -318,3 +318,12 @@ insert({When, What, Data}, #state{ets_tid = TID}) ->
                #fact{'when' = When,
                      what = What,
                      data = Data}).
+
+no_prefix(Prefix, Binary) ->
+    case binary:match(Binary, Prefix) of
+        nomatch ->
+            Binary;
+        _ ->
+            PrefixSize = size(Prefix),
+            binary:part(Binary, {PrefixSize, size(Binary) - PrefixSize})
+    end.
